@@ -2,6 +2,7 @@ package ui.songScreenElements
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -84,6 +85,51 @@ fun AudioVisualizerNoBounds(
                 style = Stroke(width = 6f),
                 cornerRadius = CornerRadius(bandWidth / 2, bandWidth / 2)
             )
+        }
+    }
+}
+
+@Composable
+fun AudioVisualizerHeight(
+    amplitudes: List<Double>,
+    modifier: Modifier = Modifier,
+    baseColor: Color
+) {
+
+    Canvas(modifier = modifier.size(width = 400.dp, height = 300.dp)) {
+        val canvasWidth = size.width
+        val canvasHeight = size.height
+
+        val totalBands = 40
+        val halfBands = totalBands / 2
+
+        val gap = 4.dp.toPx()
+        val bandWidth = (canvasWidth - (gap * (totalBands - 1))) / totalBands
+
+        if (amplitudes.isNotEmpty()) {
+            val step = amplitudes.size / halfBands
+            val halfAmplitudes = List(halfBands) { index ->
+                val sourceIndex = (index * step).coerceIn(0, amplitudes.lastIndex)
+                amplitudes[sourceIndex]
+            }
+            val mirroredAmplitudes = halfAmplitudes.reversed() + halfAmplitudes
+
+            mirroredAmplitudes.forEachIndexed { index, amplitude ->
+                val finalAmplitude = amplitude.pow(0.5).toFloat()
+
+                val minHeight = 6.dp.toPx()
+                val animatedHeight = (finalAmplitude * canvasHeight).coerceIn(minHeight, canvasHeight)
+
+                val xOffset = index * (bandWidth + gap)
+                val yOffset = (canvasHeight - animatedHeight) / 2
+
+                drawRoundRect(
+                    color = baseColor,
+                    topLeft = Offset(xOffset, yOffset),
+                    size = Size(bandWidth, animatedHeight),
+                    cornerRadius = CornerRadius(bandWidth / 2, bandWidth / 2)
+                )
+            }
         }
     }
 }

@@ -6,7 +6,9 @@ import org.koin.core.module.dsl.singleOf
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.bind
 import org.koin.dsl.module
+import repository.SettingsRepositoryImpl
 import repository.NetworkRepositoryImpl
+import repository.interfaces.SettingsRepository
 import repository.interfaces.NetworkRepository
 import viewModel.SongsScreenViewModel
 import java.util.concurrent.TimeUnit
@@ -24,4 +26,5 @@ val appModule = module {
 
     viewModelOf(::SongsScreenViewModel)
     singleOf(::NetworkRepositoryImpl) bind NetworkRepository::class
+    singleOf(::SettingsRepositoryImpl) bind SettingsRepository::class
 }

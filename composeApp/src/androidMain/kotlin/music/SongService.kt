@@ -1,16 +1,17 @@
 package music
 
 import android.R
-import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.content.Context
 import android.content.Intent
 import android.os.Binder
+import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.view.KeyEvent
-import androidx.core.app.NotificationCompat
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
@@ -19,9 +20,13 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.Log
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
-import androidx.media3.session.MediaStyleNotificationHelper
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 import dataClasses.TrackInfo
 import keywords.Keywords
 import kotlinx.coroutines.CoroutineScope
@@ -35,12 +40,12 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import music.player.AudioProcessorWithCallback
 import music.player.CustomRenderersFactory
+import kotlin.system.exitProcess
 
 @UnstableApi
 class SongService: MediaSessionService() {
     private val serviceJob = SupervisorJob()
     private val scope = CoroutineScope(Dispatchers.Main + serviceJob)
-    private lateinit var notificationManager: NotificationManager
     private val _mediaSession = MutableStateFlow<MediaSession?>(null)
     private val mediaSession: StateFlow<MediaSession?> = _mediaSession
     private lateinit var exoPlayer: ExoPlayer
@@ -88,20 +93,28 @@ class SongService: MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         notificationChannel()
-        setNotificationManager()
         buildPlayer()
-        setNotification()
     }
 
     override fun onDestroy() {
-        super.onDestroy()
         serviceJob.cancel()
         exoPlayer.release()
         _mediaSession.value?.release()
+        stopApp {  }
+        super.onDestroy()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
         return mediaSession.value
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        serviceJob.cancel()
+        exoPlayer.release()
+        _mediaSession.value?.release()
+        stopForeground(STOP_FOREGROUND_DETACH)
+        stopApp {  }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -117,9 +130,6 @@ class SongService: MediaSessionService() {
         val renderersFactory = CustomRenderersFactory(this, audioProcessor)
         exoPlayer = ExoPlayer.Builder(this, renderersFactory).build()
         exoPlayer.addListener(object : Player.Listener {
-            override fun onPlayerError(error: PlaybackException) {
-                Log.e("PLAYER-SERVICE", "error = ${error.message}", error)
-            }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 super.onMediaItemTransition(mediaItem, reason)
                 _currentMediaItem.value = mediaItem
@@ -128,27 +138,17 @@ class SongService: MediaSessionService() {
                 super.onPlaybackStateChanged(playbackState)
                 when (playbackState) {
                     Player.STATE_IDLE -> {
-                        Log.e("StateState", "STATE_IDLE")
                         when(currentMediaItem.value?.mediaId){
                             Keywords.PlayerPrevItem.value -> {
                                 _action.value = Keywords.PlayerPrevItem.value
-                                Log.e("StateState", "Prev")
                             }
                             Keywords.PlayerNextItem.value -> {
                                 _action.value = Keywords.PlayerNextItem.value
-                                Log.e("StateState", "Next")
                             }
                         }
                     }
-                    Player.STATE_BUFFERING -> {
-                        Log.e("StateState", "STATE_BUFFERING")
-                    }
                     Player.STATE_READY -> {
-                        Log.e("StateState", "STATE_READY")
                         _currentTrackLength.value = exoPlayer.duration
-                    }
-                    Player.STATE_ENDED -> {
-                        Log.e("StateState", "STATE_ENDED")
                     }
                 }
             }
@@ -217,11 +217,58 @@ class SongService: MediaSessionService() {
             }
         }
     }
-
+    private fun stopApp(action: () -> Unit = {}){
+        Handler(Looper.getMainLooper()).postDelayed({
+            android.os.Process.killProcess(android.os.Process.myPid())
+            exitProcess(0)
+        }, 200)
+        action()
+    }
     // медиасессия для контроля происходящего
     private fun setMediaSession(player: ExoPlayer){
-        val session = MediaSession.Builder(this@SongService, player)
+        val forwardingPlayer = object : ForwardingPlayer(player) {
+            override fun seekToPrevious() {
+                super.seekToPrevious()
+                _action.value = Keywords.PlayerPrevItem.value
+            }
+        }
+        val closeCommand = SessionCommand(Keywords.CloseAction.value, Bundle.EMPTY)
+        val close = CommandButton.Builder()
+            .setSessionCommand(closeCommand)
+            .setIconResId(R.drawable.ic_menu_close_clear_cancel)
+            .setDisplayName(Keywords.CloseAction.value)
+            .setEnabled(true)
+            .build()
+        val session = MediaSession.Builder(this@SongService, forwardingPlayer)
             .setCallback(object : MediaSession.Callback{
+                override fun onConnect(
+                    session: MediaSession,
+                    controllerId: MediaSession.ControllerInfo
+                ): MediaSession.ConnectionResult {
+                    val connectionResult = super.onConnect(session, controllerId)
+                    val availableSessionCommands = connectionResult.availableSessionCommands
+                        .buildUpon()
+                        .add(closeCommand)
+                        .build()
+
+                    return MediaSession.ConnectionResult.accept(
+                        availableSessionCommands,
+                        connectionResult.availablePlayerCommands
+                    )
+                }
+                override fun onCustomCommand(
+                    session: MediaSession,
+                    controllerInfo: MediaSession.ControllerInfo,
+                    customCommand: SessionCommand,
+                    args: Bundle
+                ): ListenableFuture<SessionResult> {
+                    if (customCommand.customAction == Keywords.CloseAction.value) {
+                        stopSelf()
+                        stopApp()
+                        return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                    }
+                    return super.onCustomCommand(session, controllerInfo, customCommand, args)
+                }
                 override fun onMediaButtonEvent(
                     session: MediaSession,
                     controllerInfo: MediaSession.ControllerInfo,
@@ -243,10 +290,10 @@ class SongService: MediaSessionService() {
                                         player.pause()
                                     }
                                     KeyEvent.KEYCODE_MEDIA_NEXT -> {
-                                        Log.e("StateState", "NEXT")
+                                        _action.value = Keywords.PlayerNextItem.value
                                     }
                                     KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
-                                        Log.e("StateState", "PREVIOUS")
+                                        _action.value = Keywords.PlayerPrevItem.value
                                     }
                                     KeyEvent.KEYCODE_MEDIA_STOP -> {
                                         player.stop()
@@ -260,28 +307,14 @@ class SongService: MediaSessionService() {
                 }
             })
             .setId(Keywords.PlayerId.value)
+            .setCustomLayout(listOf(close))
         _mediaSession.value?.release()
         _mediaSession.value = session.build()
-    }
-
-    private fun setNotification(){
-        startForeground(128, buildNotification())
-    }
-
-    private fun setNotificationManager(){
-        notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        addSession(_mediaSession.value!!)
     }
 
     private fun updateNotification() {
-        notificationManager.notify(128, buildNotification())
-    }
-    private fun buildNotification(): Notification{
-        return NotificationCompat.Builder(this@SongService, "128")
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setSmallIcon(R.drawable.ic_media_play)
-            .setCategory(Notification.CATEGORY_TRANSPORT)
-            .setStyle(MediaStyleNotificationHelper.MediaStyle(mediaSession.value!!))
-            .setOngoing(true).build()
+        addSession(_mediaSession.value!!)
     }
 
     // сервис не будет работать, если не сделать канал для уведомлений

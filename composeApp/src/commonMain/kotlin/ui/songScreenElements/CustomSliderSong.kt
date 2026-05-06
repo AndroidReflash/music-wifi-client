@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.sp
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CustomSliderSong(
+    color: Color,
     modifier: Modifier = Modifier,
     length: String,
     position: String,
@@ -98,7 +99,7 @@ fun CustomSliderSong(
                         .size(24.dp)
                         .drawBehind {
                             drawCircle(
-                                color = Color.Red,
+                                color = color,
                                 radius = 6.dp.toPx(),
                                 center = center
                             )
@@ -106,8 +107,8 @@ fun CustomSliderSong(
                 )
             },
             colors = SliderDefaults.colors(
-                thumbColor = Color.Red,
-                activeTrackColor = Color.Red,
+                thumbColor = color,
+                activeTrackColor = color,
                 inactiveTrackColor = Color.Gray,
             ),
             track = { sliderState ->
@@ -118,7 +119,7 @@ fun CustomSliderSong(
                     trackInsideCornerSize = 0.dp,
                     drawStopIndicator = null,
                     colors = SliderDefaults.colors(
-                        activeTrackColor = Color.Red,
+                        activeTrackColor = color,
                         inactiveTrackColor = Color.Gray.copy(alpha = 0.5f)
                     )
                 )

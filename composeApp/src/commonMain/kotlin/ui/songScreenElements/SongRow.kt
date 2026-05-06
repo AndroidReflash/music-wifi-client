@@ -18,14 +18,19 @@ import androidx.compose.ui.unit.dp
 import dataClasses.TrackInfo
 
 @Composable
-fun SongRow(song: TrackInfo, isThisCurrent: Boolean, play: () -> Unit){
+fun SongRow(
+    color: Color,
+    song: TrackInfo,
+    isThisCurrent: Boolean,
+    play: () -> Unit
+){
     Box(
         Modifier.fillMaxWidth()
         .wrapContentHeight().defaultMinSize(minHeight = 60.dp)
         .padding(5.dp)
         .border(
             1.dp,
-            if(isThisCurrent) Color.Red else Color.LightGray,
+            if(isThisCurrent) color else Color.LightGray,
             RoundedCornerShape(5.dp)
         )
         .clickable{

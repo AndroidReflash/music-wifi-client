@@ -3,31 +3,43 @@ package viewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dataClasses.TrackInfo
+import dispatchers.FolderPickerDispatcher
 import extensions.toFormattedDuration
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.launch
-import repository.interfaces.SongsRepository
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import repository.interfaces.NetworkRepository
+import repository.interfaces.SettingsRepository
+import repository.interfaces.SongsRepository
 
 class SongsScreenViewModel (
     private val scope: CoroutineScope,
     private val songsRepository: SongsRepository,
     private val networkRepository: NetworkRepository,
+    private val settings: SettingsRepository,
+    private val dispatcher: FolderPickerDispatcher
 ): ViewModel() {
-    val serverIsAlive = networkRepository.serverUp
+    val isLocal : StateFlow<Boolean> = songsRepository.isLocal
+    val currentIp = settings.serverAddress.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = ""
+    )
+    val folderAddress = settings.folderAddress.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = ""
+    )
+    val isServerAvailable = networkRepository.isServerAvailable
     val currentPlay : StateFlow<TrackInfo?> = songsRepository.currentPlay
-    val songList: StateFlow<List<TrackInfo>> = songsRepository.songList
+    val songListOffline: StateFlow<List<TrackInfo>> = songsRepository.songListOffline
+    val songListOnline: StateFlow<List<TrackInfo>> = songsRepository.songListOnline
     val isPlaying: StateFlow<Boolean> = songsRepository.isPlaying
 
     val equalizerValues : StateFlow<List<Double>> = songsRepository.equalizerArray
@@ -42,7 +54,6 @@ class SongsScreenViewModel (
 
     val trackProgress: StateFlow<Float> = songsRepository.currentPositionMs
         .combine(songsRepository.currentTrackLength) { position, duration ->
-            // Защита от деления на ноль, если данные еще не загружены
             if (duration > 0) position.toFloat() / duration.toFloat() else 0f
         }
         .stateIn(
@@ -52,25 +63,7 @@ class SongsScreenViewModel (
         )
     val error : StateFlow<String> = networkRepository.fetchError
     val shuffle: StateFlow<Boolean> = songsRepository.shuffle
-
     val repeat: StateFlow<Boolean> = songsRepository.repeat
-
-    init {
-        scope.launch {
-            while (isActive){
-                networkRepository.getServerStatus()
-                delay(1000)
-            }
-        }
-    }
-
-    fun initSongService(){
-        scope.launch {
-            withContext(Dispatchers.IO){
-                songsRepository.startSongService()
-            }
-        }
-    }
     fun play(
         trackInfo: TrackInfo
     ){
@@ -95,5 +88,37 @@ class SongsScreenViewModel (
 
     fun repeat(){
         songsRepository.repeat()
+    }
+
+    fun setServerIp(url: String){
+        scope.launch {
+            withContext(Dispatchers.IO){
+                settings.setServerAddress(url)
+            }
+        }
+    }
+
+    fun onFolderSelected(uri: String){
+        scope.launch {
+            withContext(Dispatchers.IO){
+                settings.setFolderAddress(uri)
+            }
+        }
+    }
+
+    fun onSelectFolderClicked(){
+        scope.launch {
+            dispatcher.requestFolder()
+        }
+    }
+
+    fun isLocal(){
+        scope.launch {
+            settings.setOnlineToggle(!isLocal.value)
+        }
+    }
+
+    fun onSelectedManually(trackInfo: TrackInfo){
+        songsRepository.onTrackSelectedManually(trackInfo.trackIndex)
     }
 }

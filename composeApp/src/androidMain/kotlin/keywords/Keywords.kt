@@ -7,4 +7,5 @@ sealed class Keywords (val value: String) {
     data object PlayerPrevURL: Keywords("emptyURLPrev")
     data object PlayerNextURL: Keywords("emptyURLNext")
     data object DefaultAction: Keywords("default_action")
+    data object CloseAction: Keywords("close_action")
 }

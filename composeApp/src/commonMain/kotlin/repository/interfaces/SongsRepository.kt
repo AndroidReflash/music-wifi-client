@@ -7,11 +7,9 @@ interface SongsRepository {
     fun play(trackInfo: TrackInfo)
     fun nextTrack()
     fun prevTrack()
-    fun startSongService()
     fun seekTo(percentage: Float)
     fun shuffle()
     fun repeat()
-    val songList: StateFlow<List<TrackInfo>>
     val isPlaying : StateFlow<Boolean>
     val currentPlay : StateFlow<TrackInfo?>
     val equalizerArray : StateFlow<List<Double>>
@@ -20,4 +18,8 @@ interface SongsRepository {
     val currentPositionMs: StateFlow<Long>
     val shuffle: StateFlow<Boolean>
     val repeat: StateFlow<Boolean>
+    val songListOffline: StateFlow<List<TrackInfo>>
+    val songListOnline: StateFlow<List<TrackInfo>>
+    val isLocal : StateFlow<Boolean>
+    fun onTrackSelectedManually(index: Int)
 }

@@ -30,6 +30,7 @@ kotlin {
             implementation(libs.androidx.media3.session)
             implementation (libs.commons.math3)
 
+            implementation(libs.androidx.documentfile)
         }
         commonMain.dependencies {
             implementation(libs.compose.runtime)
@@ -51,6 +52,8 @@ kotlin {
             implementation(libs.okhttp)
 
             implementation(libs.gson)
+            implementation(libs.okhttp.sse)
+            implementation(libs.androidx.datastore.preferences)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
