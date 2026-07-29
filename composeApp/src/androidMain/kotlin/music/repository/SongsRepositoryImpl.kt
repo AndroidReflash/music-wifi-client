@@ -5,18 +5,15 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
-import android.util.Log
 import androidx.media3.common.util.UnstableApi
 import dataClasses.TrackInfo
 import keywords.Keywords
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -25,9 +22,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import music.SongService
 import music.player.AudioVisualizerConverter
-import repository.SettingsRepositoryImpl
 import repository.interfaces.NetworkRepository
 import repository.interfaces.OfflineRepository
+import repository.interfaces.SettingsRepository
 import repository.interfaces.SongsRepository
 
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -36,7 +33,7 @@ class SongsRepositoryImpl(
     appContext: Context,
     private val scope: CoroutineScope,
     private val networkRepository: NetworkRepository,
-    private val settings: SettingsRepositoryImpl,
+    private val settings: SettingsRepository,
     private val offlineRepository: OfflineRepository
 ): SongsRepository {
 

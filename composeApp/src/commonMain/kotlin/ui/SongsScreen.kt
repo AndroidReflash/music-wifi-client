@@ -15,28 +15,34 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import musicwifi.composeapp.generated.resources.Res
+import musicwifi.composeapp.generated.resources.close
 import musicwifi.composeapp.generated.resources.menu
 import musicwifi.composeapp.generated.resources.pause
 import musicwifi.composeapp.generated.resources.player_play_triangle_orange
 import musicwifi.composeapp.generated.resources.repeat
+import musicwifi.composeapp.generated.resources.search
 import musicwifi.composeapp.generated.resources.shuffle
 import musicwifi.composeapp.generated.resources.skip_back
 import musicwifi.composeapp.generated.resources.skip_forward
@@ -51,7 +57,8 @@ import viewModel.SongsScreenViewModel
 
 @Composable
 fun SongsScreen(
-    interfaceColor: Color,
+    textColor: Color,
+    backgroundColor: Color,
     viewModel: SongsScreenViewModel = koinViewModel()
 ){
     val songListOffline by viewModel.songListOffline.collectAsState()
@@ -69,94 +76,163 @@ fun SongsScreen(
     val currentIp by viewModel.currentIp.collectAsState()
     val isLocal by viewModel.isLocal.collectAsState()
     val folderAddress by viewModel.folderAddress.collectAsState()
+    val currentInterfaceColor by viewModel.interfaceColor.collectAsState()
 
     var serverIp by remember { mutableStateOf("") }
     var showPopUp by remember { mutableStateOf(false) }
+    var isSearchActive by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
 
-    Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center){
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+
+    Box(Modifier.fillMaxSize().background(backgroundColor), contentAlignment = Alignment.Center){
         Box(Modifier.fillMaxWidth()
             .fillMaxHeight(),
             contentAlignment = Alignment.Center
         ){
-            AudioVisualizerHeight(equalizer, Modifier.fillMaxWidth(), interfaceColor.copy(alpha = 0.3f))
+            AudioVisualizerHeight(equalizer, Modifier.fillMaxWidth(), currentInterfaceColor.copy(alpha = 0.3f))
         }
 
         Column (modifier = Modifier.fillMaxSize().systemBarsPadding(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Row(Modifier.fillMaxWidth().height(30.dp).padding(start = 5.dp, end = 5.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ){
+            if (isSearchActive) {
                 Row(
-                    Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    Modifier.fillMaxWidth().height(30.dp).padding(start = 5.dp, end = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    if(!isLocal){
-                        Box(Modifier.size(15.dp)
-                            .clip(RoundedCornerShape(7.5.dp))
-                            .background(if(isServerAvailable) interfaceColor else Color.White)
+                    Icon(
+                        painter = painterResource(Res.drawable.search),
+                        contentDescription = "Поиск",
+                        modifier = Modifier.size(18.dp),
+                        tint = textColor
+                    )
+                    Box(
+                        Modifier.weight(1f).fillMaxHeight(),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (searchQuery.isEmpty()) {
+                            Text("Поиск треков...", color = textColor.copy(alpha = 0.3f), fontSize = 14.sp)
+                        }
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            textStyle = TextStyle(color = textColor, fontSize = 14.sp),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().padding(end = 28.dp)
                         )
-                        Text(if(isServerAvailable) "В сети" else "Недоступен", color = Color.White)
-                    }else{
-                        Text(" ", color = Color.White)
                     }
-                }
-                Icon(
-                    painter = painterResource(Res.drawable.menu),
-                    contentDescription = "Всплывашка",
-                    modifier = Modifier.size(20.dp).weight(1f)
-                        .clickable{
-                            showPopUp = true
+                    Icon(
+                        painter = painterResource(Res.drawable.close),
+                        contentDescription = "Закрыть поиск",
+                        modifier = Modifier.size(20.dp).clickable {
+                            searchQuery = ""
+                            isSearchActive = false
                         },
-                    tint = Color.White
-                )
-                if(songPlaying?.trackIndex != null){
-                    if(isLocal){
-                        Text("${songPlaying!!.trackIndex + 1} / ${songListOffline.size}",
-                            color = Color.White,
-                            modifier = Modifier.weight(1f),
-                            textAlign = TextAlign.End
-                        )
-                    }else{
-                        Text("${songPlaying!!.trackIndex + 1} / ${songListOnline.size}",
-                            color = Color.White,
-                            modifier = Modifier.weight(1f),
-                            textAlign = TextAlign.End
-                        )
+                        tint = textColor
+                    )
+                }
+            } else {
+                Row(Modifier.fillMaxWidth().height(30.dp).padding(start = 5.dp, end = 5.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ){
+                    Row(
+                        Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if(!isLocal){
+                            Box(Modifier.size(15.dp)
+                                .clip(RoundedCornerShape(7.5.dp))
+                                .background(if(isServerAvailable) currentInterfaceColor else textColor)
+                            )
+                            Text(if(isServerAvailable) "В сети" else "Недоступен", color = textColor)
+                            if(isServerAvailable){
+                                Icon(
+                                    painter = painterResource(Res.drawable.search),
+                                    contentDescription = "Поиск",
+                                    modifier = Modifier.size(18.dp).clickable {
+                                        isSearchActive = true
+                                    },
+                                    tint = textColor
+                                )
+                            }
+                        }else{
+                            Icon(
+                                painter = painterResource(Res.drawable.search),
+                                contentDescription = "Поиск",
+                                modifier = Modifier.size(18.dp).clickable {
+                                    isSearchActive = true
+                                },
+                                tint = textColor
+                            )
+                        }
                     }
-                }else{
-                    if(isLocal){
-                        Text("${songListOffline.size}",
-                            color = Color.White,
-                            modifier = Modifier.weight(1f),
-                            textAlign = TextAlign.End
-                        )
+                    Icon(
+                        painter = painterResource(Res.drawable.menu),
+                        contentDescription = "Всплывашка",
+                        modifier = Modifier.size(20.dp).weight(1f)
+                            .clickable{
+                                showPopUp = true
+                            },
+                        tint = textColor
+                    )
+                    if(songPlaying?.trackIndex != null){
+                        if(isLocal){
+                            Text("${songPlaying!!.trackIndex + 1} / ${songListOffline.size}",
+                                color = textColor,
+                                modifier = Modifier.weight(1f),
+                                textAlign = TextAlign.End
+                            )
+                        }else{
+                            Text("${songPlaying!!.trackIndex + 1} / ${songListOnline.size}",
+                                color = textColor,
+                                modifier = Modifier.weight(1f),
+                                textAlign = TextAlign.End
+                            )
+                        }
                     }else{
-                        Text("${songListOnline.size}",
-                            color = Color.White,
-                            modifier = Modifier.weight(1f),
-                            textAlign = TextAlign.End
-                        )
+                        if(isLocal){
+                            Text("${songListOffline.size}",
+                                color = textColor,
+                                modifier = Modifier.weight(1f),
+                                textAlign = TextAlign.End
+                            )
+                        }else{
+                            Text("${songListOnline.size}",
+                                color = textColor,
+                                modifier = Modifier.weight(1f),
+                                textAlign = TextAlign.End
+                            )
+                        }
                     }
                 }
             }
             if(!isServerAvailable && !isLocal){
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center){
-                    Text(error, color = Color.White, textAlign = TextAlign.Center)
+                    Text(error, color = textColor, textAlign = TextAlign.Center)
                 }
             }else{
+                val currentList = if(isLocal) songListOffline else songListOnline
+                val displayedSongs = if (searchQuery.isNotBlank()) {
+                    currentList.filter { it.trackName.contains(searchQuery, ignoreCase = true) }
+                } else {
+                    currentList
+                }
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.weight(1f).padding(top = 1.dp),
                     verticalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
                     items(
-                        items = if(isLocal) songListOffline else songListOnline,
+                        items = displayedSongs,
                         key = { song -> song.trackUrl }
                     ) { song ->
                         val isThisCurrent = song == songPlaying
-                        SongRow(interfaceColor, song, isThisCurrent){
+                        SongRow(currentInterfaceColor, song, isThisCurrent){
                             viewModel.play(song)
                             if(shuffle && !isThisCurrent){
                                 viewModel.onSelectedManually(song)
@@ -166,7 +242,25 @@ fun SongsScreen(
                 }
             }
             Box(Modifier.fillMaxWidth()
-                .height(30.dp), contentAlignment = Alignment.Center){
+                .height(30.dp)
+                .clickable {
+                    songPlaying?.let { playingSong ->
+                        val currentList = if (isLocal) songListOffline else songListOnline
+                        val displayedSongs = if (searchQuery.isNotBlank()) {
+                            currentList.filter { it.trackName.contains(searchQuery, ignoreCase = true) }
+                        } else {
+                            currentList
+                        }
+                        val index = displayedSongs.indexOf(playingSong)
+                        if (index != -1) {
+                            scope.launch {
+                                listState.animateScrollToItem(index)
+                            }
+                        }
+                    }
+                },
+                contentAlignment = Alignment.Center
+            ){
                 MarqueeTrackTextBounce(
                     songPlaying?.trackName ?: "", Modifier.fillMaxWidth(), 15.sp
                 )
@@ -183,14 +277,14 @@ fun SongsScreen(
                         .clickable{
                             viewModel.shuffle()
                         },
-                    tint = if(shuffle) interfaceColor else Color.White
+                    tint = if(shuffle) currentInterfaceColor else textColor
                 )
                 Icon(
                     painter = painterResource(Res.drawable.skip_back),
                     contentDescription = "Предыдущий",
                     modifier = Modifier.size(25.dp)
                         .clickable{viewModel.previousTrack() },
-                    tint = Color.White
+                    tint = textColor
                 )
                 Icon(
                     painter = painterResource(
@@ -214,14 +308,14 @@ fun SongsScreen(
                                 }
                             }
                         },
-                    tint = Color.White
+                    tint = textColor
                 )
                 Icon(
                     painter = painterResource(Res.drawable.skip_forward),
                     contentDescription = "Следующий",
                     modifier = Modifier.size(25.dp)
                         .clickable{viewModel.nextTrack() },
-                    tint = Color.White
+                    tint = textColor
                 )
                 Icon(
                     painter = painterResource(Res.drawable.repeat),
@@ -230,11 +324,11 @@ fun SongsScreen(
                         .clickable {
                             viewModel.repeat()
                         },
-                    tint = if(repeat) interfaceColor else Color.White
+                    tint = if(repeat) currentInterfaceColor else textColor
                 )
             }
             CustomSliderSong(
-                interfaceColor,
+                currentInterfaceColor,
                 Modifier,
                 trackSize,
                 trackTime,
@@ -246,7 +340,7 @@ fun SongsScreen(
         }
         if(showPopUp){
             ChangeIpDialog(
-                color = interfaceColor,
+                color = currentInterfaceColor,
                 isLocal = isLocal,
                 onSwitch = {
                     viewModel.isLocal()
@@ -263,7 +357,10 @@ fun SongsScreen(
                     viewModel.onSelectFolderClicked()
                 },
                 currentIp = currentIp,
-                folderAddress =  folderAddress
+                folderAddress =  folderAddress,
+                onThemeSelected = { newColor ->
+                    viewModel.setThemeColor(newColor)
+                }
             )
         }
     }

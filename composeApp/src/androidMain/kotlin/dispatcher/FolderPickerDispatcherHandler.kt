@@ -30,16 +30,17 @@ import androidx.compose.material3.TextButton
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.collectAsState
 
 @Composable
 fun FolderPickerEffectHandler(
     viewModel: SongsScreenViewModel = koinViewModel(),
     dispatcher: FolderPickerDispatcher = koinInject(),
-    interfaceColor: Color,
-    textColor: Color,
-    backgroundColor: Color,
+    textColor: Color = Color.White,
+    backgroundColor: Color = Color.Black,
 ) {
     val context = LocalContext.current
+    val interfaceColor by viewModel.interfaceColor.collectAsState()
     var showCustomFolderPicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(dispatcher) {

@@ -52,7 +52,7 @@ class NetworkRepositoryImpl(
                 text.lines().filter { it.isNotBlank() && !it.startsWith("#") }.forEachIndexed { index , song ->
                     val songUrl = "$baseUrl${song}"
                     println(songUrl)
-                    list += TrackInfo(songUrl, parseName(song), index, true)
+                    list += TrackInfo(songUrl, parseName(song), index, false)
                 }
                 _fetchError.value = ""
                 return list

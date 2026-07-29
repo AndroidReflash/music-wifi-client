@@ -1,10 +1,11 @@
 package repository
 
-
+import androidx.compose.ui.graphics.Color
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharingStarted
@@ -22,6 +23,7 @@ class SettingsRepositoryImpl(
         val SERVER_ADDRESS = stringPreferencesKey("server_address")
         val ONLINE_TOGGLE = booleanPreferencesKey("online_toggle")
         val OFFLINE_FOLDER_ADDRESS = stringPreferencesKey("folder_address")
+        val THEME_COLOR = longPreferencesKey("theme_color")
     }
 
     override val serverAddress: StateFlow<String> = dataStore.data
@@ -46,6 +48,16 @@ class SettingsRepositoryImpl(
         .map { it[Keys.ONLINE_TOGGLE] ?: false }
         .stateIn(scope, SharingStarted.WhileSubscribed(5000), false)
 
+    override val interfaceColor: StateFlow<Color> = dataStore.data
+        .map { preferences ->
+            val colorValue = preferences[Keys.THEME_COLOR]
+            if (colorValue != null) Color(colorValue.toULong()) else Color.Cyan
+        }.stateIn(
+            scope = scope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = Color.Cyan
+        )
+
     override suspend fun setServerAddress(address: String) {
         dataStore.edit { preferences ->
             preferences[Keys.SERVER_ADDRESS] = address
@@ -61,6 +73,12 @@ class SettingsRepositoryImpl(
     override suspend fun setFolderAddress(address: String) {
         dataStore.edit { preferences ->
             preferences[Keys.OFFLINE_FOLDER_ADDRESS] = address
+        }
+    }
+
+    override suspend fun setThemeColor(color: Color) {
+        dataStore.edit { preferences ->
+            preferences[Keys.THEME_COLOR] = color.value.toLong()
         }
     }
 }

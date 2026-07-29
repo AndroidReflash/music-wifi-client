@@ -1,5 +1,6 @@
 package viewModel
 
+import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dataClasses.TrackInfo
@@ -36,6 +37,7 @@ class SongsScreenViewModel (
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = ""
     )
+    val interfaceColor: StateFlow<Color> = settings.interfaceColor
     val isServerAvailable = networkRepository.isServerAvailable
     val currentPlay : StateFlow<TrackInfo?> = songsRepository.currentPlay
     val songListOffline: StateFlow<List<TrackInfo>> = songsRepository.songListOffline
@@ -94,6 +96,14 @@ class SongsScreenViewModel (
         scope.launch {
             withContext(Dispatchers.IO){
                 settings.setServerAddress(url)
+            }
+        }
+    }
+
+    fun setThemeColor(color: Color) {
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                settings.setThemeColor(color)
             }
         }
     }

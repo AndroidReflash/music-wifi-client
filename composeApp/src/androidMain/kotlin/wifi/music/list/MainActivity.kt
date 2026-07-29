@@ -23,12 +23,13 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContent {
-            val interfaceColor = Color.Cyan
             val textColor = Color.White
             val backgroundColor = Color.Black
-            SongsScreen(interfaceColor)
+            SongsScreen(
+                textColor = textColor,
+                backgroundColor = backgroundColor
+            )
             FolderPickerEffectHandler(
-                interfaceColor= interfaceColor,
                 textColor = textColor,
                 backgroundColor = backgroundColor
             )

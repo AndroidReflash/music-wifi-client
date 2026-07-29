@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.MaterialTheme
@@ -39,7 +40,8 @@ fun ChangeIpDialog(
     onConfirmOnline: (String) -> Unit,
     onChooseOfflineFolder: () -> Unit,
     currentIp: String,
-    folderAddress: String
+    folderAddress: String,
+    onThemeSelected: (Color) -> Unit
 ){
     Dialog(
         onDismissRequest = { onDismiss() },
@@ -47,7 +49,7 @@ fun ChangeIpDialog(
     ){
         Box(
             Modifier
-            .fillMaxHeight(0.4f)
+            .fillMaxHeight(0.45f)
             .fillMaxWidth(0.7f)
             .background(Color.Black)
             .border(1.dp, Color.White),
@@ -58,34 +60,49 @@ fun ChangeIpDialog(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
+                Text("Тема", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(bottom = 5.dp)
+                ) {
+                    AppTheme.entries.forEach { theme ->
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .background(theme.color)
+                                .border(
+                                    width = if (color == theme.color) 2.dp else 1.dp,
+                                    color = Color.White
+                                )
+                                .clickable {
+                                    onThemeSelected(theme.color)
+                                }
+                        )
+                    }
+                }
+
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-                    modifier = Modifier.fillMaxWidth() // Опционально, если нужно на всю ширину
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = if (!isLocal) "Онлайн" else "Офлайн",
+                        text = if (!isLocal) "По сети" else "Локально",
                         color = Color.White,
-                        // Убрали padding bottom, чтобы текст стоял ровно по центру линии со свитчем
                         style = MaterialTheme.typography.bodyLarge
                     )
 
-                    // Расстояние между текстом и переключателем
                     Spacer(modifier = Modifier.width(12.dp))
 
                     Switch(
                         checked = isLocal,
                         onCheckedChange = { onSwitch() },
                         colors = SwitchDefaults.colors(
-                            // Цвет "кружка" (thumb)
                             checkedThumbColor = Color.White,
                             uncheckedThumbColor = Color.White,
-
-                            // Цвет дорожки (track)
                             checkedTrackColor = color,
-                            uncheckedTrackColor = Color.Gray, // Или другой цвет для выключенного состояния
-
-                            // Цвет обводки (для выключенного состояния, если нужно)
+                            uncheckedTrackColor = Color.Gray,
                             uncheckedBorderColor = Color.Gray
                         )
                     )
