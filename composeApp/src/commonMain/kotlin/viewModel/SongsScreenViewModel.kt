@@ -18,6 +18,7 @@ import kotlinx.coroutines.withContext
 import repository.interfaces.NetworkRepository
 import repository.interfaces.SettingsRepository
 import repository.interfaces.SongsRepository
+import uniffi.player_core.sayHello
 
 class SongsScreenViewModel (
     private val scope: CoroutineScope,
@@ -130,5 +131,9 @@ class SongsScreenViewModel (
 
     fun onSelectedManually(trackInfo: TrackInfo){
         songsRepository.onTrackSelectedManually(trackInfo.trackIndex)
+    }
+
+    init {
+        println("saas ${sayHello("CHINAZES")}")
     }
 }

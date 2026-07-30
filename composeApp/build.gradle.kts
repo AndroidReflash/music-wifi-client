@@ -54,6 +54,9 @@ kotlin {
             implementation(libs.gson)
             implementation(libs.okhttp.sse)
             implementation(libs.androidx.datastore.preferences)
+
+            // rust
+            implementation("net.java.dev.jna:jna:5.14.0@aar")
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
@@ -110,4 +113,17 @@ compose.desktop {
             packageVersion = "1.0.0"
         }
     }
+}
+
+// Rust
+val buildRustScript = tasks.register<Exec>("buildRustScript") {
+    group = "build"
+    description = "Runs custom shell script to build Rust and UniFFI bindings"
+
+    workingDir = file(".")
+
+    commandLine("./rust.sh")
+}
+tasks.matching { it.name == "compileDebugKotlinAndroid" || it.name == "compileReleaseKotlinAndroid" }.configureEach {
+    dependsOn(buildRustScript)
 }

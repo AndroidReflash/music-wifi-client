@@ -1,13 +1,14 @@
 package music.player
 
+import music.interfaces.AudioVisualizerConverterInterface
 import kotlin.math.pow
 
-object AudioVisualizerConverter {
-    private const val PART_NUMBER = 32
-    private const val FREQUENCY_EXPONENT = 1.5
-    private const val RELEVANT_DATA_FACTOR = 0.5
+class AudioVisualizerConverter: AudioVisualizerConverterInterface {
+    private val PART_NUMBER = 32
+    private val FREQUENCY_EXPONENT = 1.5
+    private val RELEVANT_DATA_FACTOR = 0.5
 
-    fun computeBands(fftArray: List<Double>): List<Double> {
+    override fun computeBands(fftArray: List<Double>): List<Double> {
         if (fftArray.isEmpty()) return emptyList()
 
         val relevantSize = (fftArray.size * RELEVANT_DATA_FACTOR).toInt()

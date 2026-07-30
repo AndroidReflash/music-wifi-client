@@ -14,6 +14,10 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStoreFile
 import dispatcher.FolderPickerDispatcherImpl
 import dispatchers.FolderPickerDispatcher
+import music.interfaces.AudioProcessorWithCallbackInterface
+import music.interfaces.AudioVisualizerConverterInterface
+import music.player.AudioProcessorWithCallback
+import music.player.AudioVisualizerConverter
 import music.repository.OfflineRepositoryImpl
 import org.koin.android.ext.koin.androidContext
 import repository.interfaces.OfflineRepository
@@ -33,4 +37,6 @@ val appModuleAndroid = module {
     singleOf(::SongsRepositoryImpl) bind SongsRepository::class
     singleOf(::OfflineRepositoryImpl) bind OfflineRepository::class
     singleOf(::FolderPickerDispatcherImpl) bind FolderPickerDispatcher::class
+    singleOf(::AudioProcessorWithCallback) bind AudioProcessorWithCallbackInterface::class
+    singleOf(::AudioVisualizerConverter) bind AudioVisualizerConverterInterface::class
 }

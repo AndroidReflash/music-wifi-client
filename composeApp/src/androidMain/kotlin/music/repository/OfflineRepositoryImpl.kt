@@ -50,12 +50,4 @@ class OfflineRepositoryImpl(
             return emptyList()
         }
     }
-
-    init {
-        scope.launch {
-            musicFolderUri.collect {
-                println("uri folder $it")
-            }
-        }
-    }
 }

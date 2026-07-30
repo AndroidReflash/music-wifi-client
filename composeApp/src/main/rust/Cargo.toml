@@ -1,0 +1,15 @@
+[package]
+name = "player_core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "player_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+uniffi = { version = "0.28", features = ["cli"] }
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"

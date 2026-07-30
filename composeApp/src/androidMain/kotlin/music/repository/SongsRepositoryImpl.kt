@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import music.SongService
+import music.interfaces.AudioVisualizerConverterInterface
 import music.player.AudioVisualizerConverter
 import repository.interfaces.NetworkRepository
 import repository.interfaces.OfflineRepository
@@ -34,7 +35,8 @@ class SongsRepositoryImpl(
     private val scope: CoroutineScope,
     private val networkRepository: NetworkRepository,
     private val settings: SettingsRepository,
-    private val offlineRepository: OfflineRepository
+    private val offlineRepository: OfflineRepository,
+    private val audioVisualizerConverter: AudioVisualizerConverterInterface
 ): SongsRepository {
 
     override val isLocal : StateFlow<Boolean> = settings.isPlayingLocal.stateIn(
@@ -111,7 +113,7 @@ class SongsRepositoryImpl(
                         flowOf(emptyList<Double>())
                     }
                 }.collect { fftData ->
-                    _equalizerArray.value = AudioVisualizerConverter.computeBands(fftData)
+                    _equalizerArray.value = audioVisualizerConverter.computeBands(fftData)
                 }
             }
 

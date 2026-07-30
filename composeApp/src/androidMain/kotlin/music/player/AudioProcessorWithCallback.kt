@@ -11,6 +11,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import music.interfaces.AudioProcessorWithCallbackInterface
 import java.nio.ByteBuffer
 import org.apache.commons.math3.transform.DftNormalization
 import org.apache.commons.math3.transform.FastFourierTransformer
@@ -20,10 +21,10 @@ import java.nio.ByteOrder
 private const val fftSize = 1024 // => вернёт 512 амплитуд
 //создал аудиопроцессор, чтобы подменить им стандартный процессор exoPlayer, чтобы можно было звук забирать
 @UnstableApi
-class AudioProcessorWithCallback : AudioProcessor {
+class AudioProcessorWithCallback : AudioProcessor, AudioProcessorWithCallbackInterface {
 
     private val _onFftData = MutableStateFlow<List<Double>>(emptyList())
-    val onFftData: StateFlow<List<Double>> = _onFftData
+    override val onFftData: StateFlow<List<Double>> = _onFftData
 
     private var outputBuffer: ByteBuffer = AudioProcessor.EMPTY_BUFFER
     private var pendingOutputBuffer: ByteBuffer = AudioProcessor.EMPTY_BUFFER

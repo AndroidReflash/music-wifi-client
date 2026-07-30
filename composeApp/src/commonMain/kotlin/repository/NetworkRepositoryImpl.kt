@@ -126,7 +126,6 @@ class NetworkRepositoryImpl(
 
     private suspend fun checkCorrectUrl(): String{
         val rawAddress = address.first { it.isNotBlank() }
-        println("address ${address.first { it.isNotBlank() }}")
         val baseUrl = if (rawAddress.startsWith("http://") || rawAddress.startsWith("https://")) {
             rawAddress
         } else {
