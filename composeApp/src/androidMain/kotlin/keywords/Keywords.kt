@@ -2,10 +2,8 @@ package keywords
 
 sealed class Keywords (val value: String) {
     data object PlayerId: Keywords("player")
-    data object PlayerNextItem: Keywords("next_item")
-    data object PlayerPrevItem: Keywords("prev_item")
-    data object PlayerPrevURL: Keywords("emptyURLPrev")
-    data object PlayerNextURL: Keywords("emptyURLNext")
-    data object DefaultAction: Keywords("default_action")
     data object CloseAction: Keywords("close_action")
+
+    /** Тег журнала. Тот же, что у Rust-части: одна строка `adb logcat -s musicwifi`. */
+    data object LogTag: Keywords("musicwifi")
 }

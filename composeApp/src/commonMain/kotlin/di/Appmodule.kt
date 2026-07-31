@@ -1,30 +1,20 @@
 package di
 
-import com.google.gson.GsonBuilder
-import okhttp3.OkHttpClient
 import org.koin.core.module.dsl.singleOf
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.bind
 import org.koin.dsl.module
+import platform.HotkeyActionsImpl
+import platform.interfaces.HotkeyActions
 import repository.SettingsRepositoryImpl
-import repository.NetworkRepositoryImpl
+import repository.NetworkRepositoryImplRust
 import repository.interfaces.SettingsRepository
 import repository.interfaces.NetworkRepository
 import viewModel.SongsScreenViewModel
-import java.util.concurrent.TimeUnit
 
 val appModule = module {
-    single {
-        OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(10, TimeUnit.SECONDS)
-            .build()
-    }
-    single {
-        GsonBuilder().create()
-    }
-
     viewModelOf(::SongsScreenViewModel)
-    singleOf(::NetworkRepositoryImpl) bind NetworkRepository::class
+    singleOf(::NetworkRepositoryImplRust) bind NetworkRepository::class
     singleOf(::SettingsRepositoryImpl) bind SettingsRepository::class
+    singleOf(::HotkeyActionsImpl) bind HotkeyActions::class
 }

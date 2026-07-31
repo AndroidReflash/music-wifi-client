@@ -1,25 +1,10 @@
 package ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -27,42 +12,51 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import kotlinx.coroutines.launch
-import musicwifi.composeapp.generated.resources.Res
-import musicwifi.composeapp.generated.resources.close
-import musicwifi.composeapp.generated.resources.menu
-import musicwifi.composeapp.generated.resources.pause
-import musicwifi.composeapp.generated.resources.player_play_triangle_orange
-import musicwifi.composeapp.generated.resources.repeat
-import musicwifi.composeapp.generated.resources.search
-import musicwifi.composeapp.generated.resources.shuffle
-import musicwifi.composeapp.generated.resources.skip_back
-import musicwifi.composeapp.generated.resources.skip_forward
-import org.jetbrains.compose.resources.painterResource
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
+import platform.interfaces.HotkeySettings
+import platform.interfaces.PanelSettings
+import platform.interfaces.SongsLayout
+import platform.interfaces.SoundSettings
+import enums.VisualizerShape
 import ui.songScreenElements.AudioVisualizerHeight
+import ui.songScreenElements.AudioVisualizerRadial
 import ui.songScreenElements.ChangeIpDialog
+import ui.songScreenElements.EqualizerDialog
+import ui.songScreenElements.CoverArt
+import ui.songScreenElements.CoverImage
 import ui.songScreenElements.CustomSliderSong
-import ui.songScreenElements.MarqueeTrackTextBounce
-import ui.songScreenElements.SongRow
+import ui.songScreenElements.SongsControls
+import ui.songScreenElements.SongsList
+import ui.songScreenElements.SongsTitleBar
+import ui.songScreenElements.SongsTopBar
 import viewModel.SongsScreenViewModel
 
+/**
+ * Экран воспроизведения: собирает состояние и отдаёт блоки той расстановке, которая досталась
+ * платформе. Где что стоит, здесь не решается — [SongsLayout].
+ */
 @Composable
 fun SongsScreen(
     textColor: Color,
     backgroundColor: Color,
-    viewModel: SongsScreenViewModel = koinViewModel()
+    // Идёт ли набор текста в поле поиска. Нужно горячим клавишам десктопа: пока курсор в поле,
+    // нажатия принадлежат ему. Телефону не нужно, отсюда пустое по умолчанию.
+    onTextEntry: (Boolean) -> Unit = {},
+    viewModel: SongsScreenViewModel = koinViewModel(),
+    layout: SongsLayout = koinInject(),
+    soundSettings: SoundSettings = koinInject(),
+    panelSettings: PanelSettings = koinInject(),
+    hotkeySettings: HotkeySettings = koinInject(),
 ){
     val songListOffline by viewModel.songListOffline.collectAsState()
     val songListOnline by viewModel.songListOnline.collectAsState()
+    val playlist by viewModel.playlist.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
     val songPlaying by viewModel.currentPlay.collectAsState()
     val equalizer by viewModel.equalizerValues.collectAsState()
@@ -77,291 +71,243 @@ fun SongsScreen(
     val isLocal by viewModel.isLocal.collectAsState()
     val folderAddress by viewModel.folderAddress.collectAsState()
     val currentInterfaceColor by viewModel.interfaceColor.collectAsState()
+    val showVisualizer by viewModel.showVisualizer.collectAsState()
+    val showCover by viewModel.showCover.collectAsState()
+    val outputDevice by viewModel.outputDevice.collectAsState()
+    val outputDevices by viewModel.outputDevices.collectAsState()
+    val volume by viewModel.volume.collectAsState()
+    val equalizerGains by viewModel.equalizerGains.collectAsState()
+    val hotkeys by viewModel.hotkeys.collectAsState()
+    val hotkeysGlobal by viewModel.hotkeysGlobal.collectAsState()
+    val autoplay by viewModel.autoplay.collectAsState()
+    val visualizerRing by viewModel.visualizerRing.collectAsState()
+    val coverSmall by viewModel.coverSmall.collectAsState()
+    val showCoverImage by viewModel.showCoverImage.collectAsState()
+    val coverPicture by viewModel.coverImage.collectAsState()
+    val panelDivider by viewModel.panelDivider.collectAsState()
+    val panelTransparent by viewModel.panelTransparent.collectAsState()
 
     var serverIp by remember { mutableStateOf("") }
     var showPopUp by remember { mutableStateOf(false) }
+    var showEqualizer by remember { mutableStateOf(false) }
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
 
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    Box(Modifier.fillMaxSize().background(backgroundColor), contentAlignment = Alignment.Center){
-        Box(Modifier.fillMaxWidth()
-            .fillMaxHeight(),
-            contentAlignment = Alignment.Center
-        ){
-            AudioVisualizerHeight(equalizer, Modifier.fillMaxWidth(), currentInterfaceColor.copy(alpha = 0.3f))
-        }
+    // Отбор по запросу поиска нужен и списку, и прокрутке к играющей дорожке, поэтому
+    // считается один раз здесь.
+    val displayedSongs = if (searchQuery.isNotBlank()) {
+        playlist.filter { it.trackName.contains(searchQuery, ignoreCase = true) }
+    } else {
+        playlist
+    }
 
-        Column (modifier = Modifier.fillMaxSize().systemBarsPadding(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            if (isSearchActive) {
-                Row(
-                    Modifier.fillMaxWidth().height(30.dp).padding(start = 5.dp, end = 5.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        painter = painterResource(Res.drawable.search),
-                        contentDescription = "Поиск",
-                        modifier = Modifier.size(18.dp),
-                        tint = textColor
-                    )
-                    Box(
-                        Modifier.weight(1f).fillMaxHeight(),
-                        contentAlignment = Alignment.CenterStart
-                    ) {
-                        if (searchQuery.isEmpty()) {
-                            Text("Поиск треков...", color = textColor.copy(alpha = 0.3f), fontSize = 14.sp)
-                        }
-                        BasicTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            textStyle = TextStyle(color = textColor, fontSize = 14.sp),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth().padding(end = 28.dp)
-                        )
-                    }
-                    Icon(
-                        painter = painterResource(Res.drawable.close),
-                        contentDescription = "Закрыть поиск",
-                        modifier = Modifier.size(20.dp).clickable {
-                            searchQuery = ""
-                            isSearchActive = false
-                        },
-                        tint = textColor
-                    )
-                }
-            } else {
-                Row(Modifier.fillMaxWidth().height(30.dp).padding(start = 5.dp, end = 5.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ){
-                    Row(
-                        Modifier.weight(1f),
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if(!isLocal){
-                            Box(Modifier.size(15.dp)
-                                .clip(RoundedCornerShape(7.5.dp))
-                                .background(if(isServerAvailable) currentInterfaceColor else textColor)
-                            )
-                            Text(if(isServerAvailable) "В сети" else "Недоступен", color = textColor)
-                            if(isServerAvailable){
-                                Icon(
-                                    painter = painterResource(Res.drawable.search),
-                                    contentDescription = "Поиск",
-                                    modifier = Modifier.size(18.dp).clickable {
-                                        isSearchActive = true
-                                    },
-                                    tint = textColor
-                                )
-                            }
-                        }else{
-                            Icon(
-                                painter = painterResource(Res.drawable.search),
-                                contentDescription = "Поиск",
-                                modifier = Modifier.size(18.dp).clickable {
-                                    isSearchActive = true
-                                },
-                                tint = textColor
-                            )
-                        }
-                    }
-                    Icon(
-                        painter = painterResource(Res.drawable.menu),
-                        contentDescription = "Всплывашка",
-                        modifier = Modifier.size(20.dp).weight(1f)
-                            .clickable{
-                                showPopUp = true
-                            },
-                        tint = textColor
-                    )
-                    if(songPlaying?.trackIndex != null){
-                        if(isLocal){
-                            Text("${songPlaying!!.trackIndex + 1} / ${songListOffline.size}",
-                                color = textColor,
-                                modifier = Modifier.weight(1f),
-                                textAlign = TextAlign.End
-                            )
-                        }else{
-                            Text("${songPlaying!!.trackIndex + 1} / ${songListOnline.size}",
-                                color = textColor,
-                                modifier = Modifier.weight(1f),
-                                textAlign = TextAlign.End
-                            )
-                        }
-                    }else{
-                        if(isLocal){
-                            Text("${songListOffline.size}",
-                                color = textColor,
-                                modifier = Modifier.weight(1f),
-                                textAlign = TextAlign.End
-                            )
-                        }else{
-                            Text("${songListOnline.size}",
-                                color = textColor,
-                                modifier = Modifier.weight(1f),
-                                textAlign = TextAlign.End
-                            )
-                        }
-                    }
-                }
+    // Спрятанное отдаётся как `null`, а не как пустой кусок разметки: место под него занимать
+    // незачем, а убрать его может только расстановка.
+    val shape = if (visualizerRing) VisualizerShape.RING else VisualizerShape.BARS
+    val visualizerSlot: (@Composable (Modifier, Color) -> Unit)? = if (showVisualizer) {
+        { modifier, color ->
+            when (shape) {
+                VisualizerShape.BARS -> AudioVisualizerHeight(equalizer, modifier, color)
+                VisualizerShape.RING -> AudioVisualizerRadial(equalizer, modifier, color)
             }
-            if(!isServerAvailable && !isLocal){
-                Box(Modifier.weight(1f), contentAlignment = Alignment.Center){
-                    Text(error, color = textColor, textAlign = TextAlign.Center)
+        }
+    } else {
+        null
+    }
+    val coverSlot: (@Composable (Modifier, Color) -> Unit)? = if (showCover) {
+        { modifier, color ->
+            CoverArt(
+                color = color,
+                isPlaying = isPlaying,
+                small = coverSmall,
+                modifier = modifier,
+            )
+        }
+    } else {
+        null
+    }
+    val coverImageSlot: (@Composable (Modifier) -> Unit)? = if (showCoverImage) {
+        { modifier -> CoverImage(image = coverPicture, modifier = modifier) }
+    } else {
+        null
+    }
+
+    // Любое нажатие на экране — знак, что пользователь взялся за приложение сам, и автоплей, если
+    // ещё ждёт списка, больше не нужен. Нажатие видно здесь раньше, чем кнопке под пальцем
+    // (`PointerEventPass.Initial`), и у неё не отнимается. Окно настроек — отдельное окно, его
+    // нажатия сюда не доходят, но чтобы его открыть, нажимают кнопку здесь.
+    // `propagateMinConstraints` — чтобы расстановка получала тот же размер, что и без этой
+    // обёртки: весь экран.
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    viewModel.stopAutoplay()
                 }
-            }else{
-                val currentList = if(isLocal) songListOffline else songListOnline
-                val displayedSongs = if (searchQuery.isNotBlank()) {
-                    currentList.filter { it.trackName.contains(searchQuery, ignoreCase = true) }
-                } else {
-                    currentList
-                }
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.weight(1f).padding(top = 1.dp),
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
-                    items(
-                        items = displayedSongs,
-                        key = { song -> song.trackUrl }
-                    ) { song ->
-                        val isThisCurrent = song == songPlaying
-                        SongRow(currentInterfaceColor, song, isThisCurrent){
-                            viewModel.play(song)
-                            if(shuffle && !isThisCurrent){
-                                viewModel.onSelectedManually(song)
-                            }
-                        }
-                    }
-                }
-            }
-            Box(Modifier.fillMaxWidth()
-                .height(30.dp)
-                .clickable {
-                    songPlaying?.let { playingSong ->
-                        val currentList = if (isLocal) songListOffline else songListOnline
-                        val displayedSongs = if (searchQuery.isNotBlank()) {
-                            currentList.filter { it.trackName.contains(searchQuery, ignoreCase = true) }
-                        } else {
-                            currentList
-                        }
-                        val index = displayedSongs.indexOf(playingSong)
-                        if (index != -1) {
-                            scope.launch {
-                                listState.animateScrollToItem(index)
-                            }
-                        }
-                    }
-                },
-                contentAlignment = Alignment.Center
-            ){
-                MarqueeTrackTextBounce(
-                    songPlaying?.trackName ?: "", Modifier.fillMaxWidth(), 15.sp
+            },
+        propagateMinConstraints = true,
+    ) {
+        layout.Content(
+            backgroundColor = backgroundColor,
+            interfaceColor = currentInterfaceColor,
+            listState = listState,
+            visualizer = visualizerSlot,
+            shape = shape,
+            topBar = { dimensions ->
+                SongsTopBar(
+                    textColor = textColor,
+                    interfaceColor = currentInterfaceColor,
+                    isLocal = isLocal,
+                    isServerAvailable = isServerAvailable,
+                    trackCount = if (isLocal) songListOffline.size else songListOnline.size,
+                    currentNumber = songPlaying?.let { it.trackIndex + 1 },
+                    isSearchActive = isSearchActive,
+                    searchQuery = searchQuery,
+                    onSearchActiveChange = { isSearchActive = it },
+                    onSearchQueryChange = { searchQuery = it },
+                    onMenu = { showPopUp = true },
+                    onEqualizer = { showEqualizer = true },
+                    onTextEntry = onTextEntry,
+                    dimensions = dimensions,
                 )
-            }
-            Row(modifier = Modifier.fillMaxWidth()
-                .height(60.dp),
-                horizontalArrangement = Arrangement.SpaceAround,
-                verticalAlignment = Alignment.CenterVertically
-            ){
-                Icon(
-                    painter = painterResource(Res.drawable.shuffle),
-                    contentDescription = "Перемешать",
-                    modifier = Modifier.size(20.dp)
-                        .clickable{
-                            viewModel.shuffle()
-                        },
-                    tint = if(shuffle) currentInterfaceColor else textColor
+            },
+            list = { modifier ->
+                SongsList(
+                    songs = displayedSongs,
+                    songPlaying = songPlaying,
+                    interfaceColor = currentInterfaceColor,
+                    textColor = textColor,
+                    listState = listState,
+                    shuffle = shuffle,
+                    error = if (!isServerAvailable && !isLocal) error else null,
+                    onPlay = { song -> viewModel.play(song) },
+                    onSelectedManually = { song -> viewModel.onSelectedManually(song) },
+                    modifier = modifier,
                 )
-                Icon(
-                    painter = painterResource(Res.drawable.skip_back),
-                    contentDescription = "Предыдущий",
-                    modifier = Modifier.size(25.dp)
-                        .clickable{viewModel.previousTrack() },
-                    tint = textColor
-                )
-                Icon(
-                    painter = painterResource(
-                        if(isPlaying) Res.drawable.pause
-                        else Res.drawable.player_play_triangle_orange
-                    ),
-                    contentDescription = "Воспроизведение",
-                    modifier = Modifier.size(40.dp)
-                        .clickable{
-                            if(songPlaying != null){
-                                viewModel.play(songPlaying!!)
-                            }else{
-                                val currentList = if (isLocal) songListOffline else songListOnline
-                                if(currentList.isNotEmpty()){
-                                    val number = 0..<currentList.size
-                                    val currentTrack = currentList[number.random()]
-                                    viewModel.play(currentTrack)
-                                    if(shuffle){
-                                        viewModel.onSelectedManually(currentTrack)
-                                    }
+            },
+            coverImage = coverImageSlot,
+            cover = coverSlot,
+            title = { modifier ->
+                SongsTitleBar(
+                    title = songPlaying?.trackName ?: "",
+                    onClick = {
+                        songPlaying?.let { playingSong ->
+                            val index = displayedSongs.indexOf(playingSong)
+                            if (index != -1) {
+                                scope.launch {
+                                    listState.animateScrollToItem(index)
                                 }
                             }
-                        },
-                    tint = textColor
+                        }
+                    },
+                    modifier = modifier,
                 )
-                Icon(
-                    painter = painterResource(Res.drawable.skip_forward),
-                    contentDescription = "Следующий",
-                    modifier = Modifier.size(25.dp)
-                        .clickable{viewModel.nextTrack() },
-                    tint = textColor
+            },
+            controls = { modifier ->
+                SongsControls(
+                    playlist = playlist,
+                    songPlaying = songPlaying,
+                    isPlaying = isPlaying,
+                    shuffle = shuffle,
+                    repeat = repeat,
+                    textColor = textColor,
+                    interfaceColor = currentInterfaceColor,
+                    onPlay = { song -> viewModel.play(song) },
+                    onSelectedManually = { song -> viewModel.onSelectedManually(song) },
+                    onPrevious = { viewModel.previousTrack() },
+                    onNext = { viewModel.nextTrack() },
+                    onShuffle = { viewModel.shuffle() },
+                    onRepeat = { viewModel.repeat() },
+                    modifier = modifier,
                 )
-                Icon(
-                    painter = painterResource(Res.drawable.repeat),
-                    contentDescription = "Повторить",
-                    modifier = Modifier.size(20.dp)
-                        .clickable {
-                            viewModel.repeat()
-                        },
-                    tint = if(repeat) currentInterfaceColor else textColor
+            },
+            panelDivider = panelDivider,
+            panelTransparent = panelTransparent,
+            slider = { modifier ->
+                CustomSliderSong(
+                    currentInterfaceColor,
+                    modifier,
+                    trackSize,
+                    trackTime,
+                    trackProgress,
+                    {
+                        viewModel.seekTo(it)
+                    }
                 )
-            }
-            CustomSliderSong(
-                currentInterfaceColor,
-                Modifier,
-                trackSize,
-                trackTime,
-                trackProgress,
-                {
-                    viewModel.seekTo(it)
-                }
-            )
-        }
-        if(showPopUp){
-            ChangeIpDialog(
-                color = currentInterfaceColor,
-                isLocal = isLocal,
-                onSwitch = {
-                    viewModel.isLocal()
-                },
-                onDismiss = {
-                    showPopUp = false
-                },
-                onConfirmOnline = {
-                    serverIp = it
-                    viewModel.setServerIp(serverIp)
-                    showPopUp = false
-                },
-                onChooseOfflineFolder = {
-                    viewModel.onSelectFolderClicked()
-                },
-                currentIp = currentIp,
-                folderAddress =  folderAddress,
-                onThemeSelected = { newColor ->
-                    viewModel.setThemeColor(newColor)
-                }
-            )
-        }
+            },
+        )
+    }
+
+    if (showEqualizer) {
+        EqualizerDialog(
+            color = currentInterfaceColor,
+            bands = viewModel.equalizerBands,
+            gains = equalizerGains,
+            maxDb = viewModel.equalizerMaxDb,
+            onBand = { band, gain -> viewModel.setEqualizerBand(band, gain) },
+            onReset = { viewModel.resetEqualizer() },
+            onDismiss = { showEqualizer = false },
+        )
+    }
+
+    // Диалог — настоящий `Dialog`, своё окно: где он стоит в разметке, на его место не влияет.
+    if(showPopUp){
+        ChangeIpDialog(
+            color = currentInterfaceColor,
+            isLocal = isLocal,
+            onSwitch = {
+                viewModel.isLocal()
+            },
+            onDismiss = {
+                showPopUp = false
+            },
+            onConfirmOnline = {
+                serverIp = it
+                viewModel.setServerIp(serverIp)
+                showPopUp = false
+            },
+            onChooseOfflineFolder = {
+                viewModel.onSelectFolderClicked()
+            },
+            currentIp = currentIp,
+            folderAddress =  folderAddress,
+            onThemeSelected = { newColor ->
+                viewModel.setThemeColor(newColor)
+            },
+            showVisualizer = showVisualizer,
+            showCover = showCover,
+            showCoverImage = showCoverImage,
+            visualizerRing = visualizerRing,
+            coverSmall = coverSmall,
+            onShowVisualizer = { value -> viewModel.setShowVisualizer(value) },
+            onShowCover = { value -> viewModel.setShowCover(value) },
+            onShowCoverImage = { value -> viewModel.setShowCoverImage(value) },
+            onVisualizerRing = { value -> viewModel.setVisualizerRing(value) },
+            onCoverSmall = { value -> viewModel.setCoverSmall(value) },
+            outputDevices = outputDevices,
+            outputDevice = outputDevice,
+            volume = volume,
+            onRefreshOutputDevices = { viewModel.refreshOutputDevices() },
+            onPickOutputDevice = { name -> viewModel.setOutputDevice(name) },
+            onVolume = { value -> viewModel.setVolume(value) },
+            panelDivider = panelDivider,
+            panelTransparent = panelTransparent,
+            onPanelDivider = { value -> viewModel.setPanelDivider(value) },
+            onPanelTransparent = { value -> viewModel.setPanelTransparent(value) },
+            hotkeys = hotkeys,
+            onHotkey = { action, hotkey -> viewModel.setHotkey(action, hotkey) },
+            hotkeysGlobal = hotkeysGlobal,
+            onHotkeysGlobal = { value -> viewModel.setHotkeysGlobal(value) },
+            autoplay = autoplay,
+            onAutoplay = { value -> viewModel.setAutoplay(value) },
+            soundSettings = soundSettings,
+            panelSettings = panelSettings,
+            hotkeySettings = hotkeySettings,
+        )
     }
 }

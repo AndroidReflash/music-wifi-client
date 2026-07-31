@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,7 +26,12 @@ fun SongRow(
     Box(
         Modifier.fillMaxWidth()
         .wrapContentHeight().defaultMinSize(minHeight = 60.dp)
-        .padding(5.dp)
+        .padding(4.dp)
+        // Чёрная обводка снаружи цветной рамки: под списком может лежать светлая обложка, и на
+        // ней светлая рамка пропадает. Отступ распределён так, что сама цветная рамка осталась
+        // там же, где была, — 5 dp от края строки.
+        .border(1.dp, Color.Black, RoundedCornerShape(6.dp))
+        .padding(1.dp)
         .border(
             1.dp,
             if(isThisCurrent) color else Color.LightGray,
@@ -38,8 +42,12 @@ fun SongRow(
         },
         contentAlignment = Alignment.Center
     ){
-        Text(song.trackName, Modifier.padding(start = 4.dp, end = 4.dp),
-            maxLines = 1, color = Color.White, overflow = TextOverflow.Ellipsis
+        OutlinedText(
+            text = song.trackName,
+            color = Color.White,
+            textModifier = Modifier.padding(start = 4.dp, end = 4.dp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

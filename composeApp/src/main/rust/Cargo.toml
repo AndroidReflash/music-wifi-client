@@ -5,10 +5,36 @@ edition = "2021"
 
 [lib]
 name = "player_core"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 uniffi = { version = "0.28", features = ["cli"] }
+rustfft = "6.2"
+num-complex = "0.4"
+tokio = { version = "1.43", features = ["full"] }
+quinn = "0.11"
+rustls = { version = "0.23", features = ["ring", "std", "tls12"] }
+anyhow = "1.0"
+log = "0.4"
+android_logger = "0.14"
+env_logger = "0.11"
+notify = "8.0"
+cpal = "0.15"
+symphonia = { version = "0.6", features = ["all"] }
+rubato = "5.0"
+audioadapter-buffers = "5.1"
+rtrb = "0.4"
+
+[target.'cfg(target_os = "android")'.dependencies]
+cpal = { version = "0.15", features = ["oboe-shared-stdcxx"] }
+jni = "0.21"
+ndk-context = "0.1"
+
+[dev-dependencies]
+# Приёмник журнала для примеров: на Android его ставит сам плеер (`android_logger` в
+# `Player::new`), а на хосте без приёмника фасад `log` выбрасывает записи молча.
+# Уровень задаётся переменной окружения `RUST_LOG`.
+env_logger = "0.11"
 
 [[bin]]
 name = "uniffi-bindgen"

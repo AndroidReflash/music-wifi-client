@@ -16,12 +16,13 @@ import ui.SongsScreen
 class MainActivity : ComponentActivity() {
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
+        super.onCreate(savedInstanceState)
+        
         val check = checkStoragePermission(this@MainActivity)
         if(!check){
             requestStoragePermission(this@MainActivity)
         }
-        enableEdgeToEdge()
-        super.onCreate(savedInstanceState)
         setContent {
             val textColor = Color.White
             val backgroundColor = Color.Black

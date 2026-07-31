@@ -1,7 +1,8 @@
 package repository.interfaces
 
 import dataClasses.TrackInfo
+import kotlinx.coroutines.flow.StateFlow
 
 interface OfflineRepository {
-    suspend fun offlineSongList(): List<TrackInfo>
+    val offlineSongsFlow: StateFlow<List<TrackInfo>>
 }

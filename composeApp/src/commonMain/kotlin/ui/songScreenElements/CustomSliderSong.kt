@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -74,10 +73,12 @@ fun CustomSliderSong(
         verticalAlignment = Alignment.CenterVertically
     ) {
 
-        Text(
-            position,
-            modifier.width(fixedWidth*fileSize.length),
+        // Обводка: при прозрачной панели подписи времени оказываются на картинке обложки.
+        OutlinedText(
+            text = position,
             color = Color.Gray,
+            modifier = modifier.width(fixedWidth*fileSize.length),
+            textModifier = Modifier.fillMaxWidth(),
             fontSize = fontSize.sp,
             lineHeight = fontSize.sp*1.2f,
             textAlign = TextAlign.Start,
@@ -127,10 +128,11 @@ fun CustomSliderSong(
             modifier = modifier.weight(1f)
         )
         Spacer(modifier = Modifier.width(8.dp))
-        Text(
-            length,
-            modifier.width(fixedWidth*fileSize.length),
+        OutlinedText(
+            text = length,
             color = Color.Gray,
+            modifier = modifier.width(fixedWidth*fileSize.length),
+            textModifier = Modifier.fillMaxWidth(),
             fontSize = fontSize.sp,
             lineHeight = fontSize.sp*1.2f,
             textAlign = TextAlign.End,

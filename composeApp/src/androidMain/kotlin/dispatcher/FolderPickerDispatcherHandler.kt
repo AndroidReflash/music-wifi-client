@@ -12,6 +12,7 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import viewModel.SongsScreenViewModel
 import android.os.Environment
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
@@ -30,6 +32,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
+import constants.DialogConstantsDp
 import androidx.compose.runtime.collectAsState
 
 @Composable
@@ -85,7 +89,12 @@ private fun SimpleFolderPickerDialog(
     }
 
     AlertDialog(
-        modifier = Modifier.border(1.dp, interfaceColor),
+        // Размер общий с окном настроек: оба открываются из одного места, и разные размеры
+        // читались бы как разные окна одного приложения. Ширину задаём сами, поэтому платформенную
+        // по умолчанию надо отключить — иначе она её и оставит.
+        modifier = Modifier.border(1.dp, interfaceColor)
+            .size(width = DialogConstantsDp.Width.value, height = DialogConstantsDp.Height.value),
+        properties = DialogProperties(usePlatformDefaultWidth = false),
         containerColor = backgroundColor,
         onDismissRequest = onDismiss,
         title = { Text("Выбери папку с музыкой", color = textColor) },
@@ -94,7 +103,7 @@ private fun SimpleFolderPickerDialog(
                 Text("Текущий путь: ${currentDir.absolutePath}", style = MaterialTheme.typography.bodySmall, color = textColor)
                 Spacer(modifier = Modifier.height(8.dp))
 
-                LazyColumn(modifier = Modifier.height(300.dp)) {
+                LazyColumn(modifier = Modifier.height(DialogConstantsDp.ListHeight.value)) {
                     if (currentDir.parentFile != null && currentDir != Environment.getExternalStorageDirectory()) {
                         item {
                             TextButton(onClick = { currentDir = currentDir.parentFile }) {
@@ -117,7 +126,9 @@ private fun SimpleFolderPickerDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onFolderSelected(currentDir.absolutePath) }) { Text("Применить", color = interfaceColor) }
+            TextButton(onClick = {
+                onFolderSelected(currentDir.absolutePath)
+            }) { Text("Применить", color = interfaceColor) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Отмена", color = textColor) }

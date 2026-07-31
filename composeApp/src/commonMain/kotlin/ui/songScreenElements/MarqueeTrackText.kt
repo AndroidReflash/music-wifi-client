@@ -22,6 +22,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import kotlinx.coroutines.delay
@@ -150,6 +151,18 @@ fun MarqueeTrackTextBounce(
             },
         contentAlignment = Alignment.Center
     ) {
+        // Дважды: снизу чёрным контуром, сверху белой заливкой. Оба слоя едут одним и тем же
+        // сдвигом, иначе на бегу они разъехались бы.
+        Text(
+            text = text,
+            style = textStyle.copy(drawStyle = Stroke(width = OUTLINE_WIDTH)),
+            color = Color.Black,
+            softWrap = false,
+            maxLines = 1,
+            overflow = TextOverflow.Visible,
+            modifier = Modifier
+                .offset { IntOffset(-scroll.value.roundToInt(), 0) }
+        )
         Text(
             text = text,
             style = textStyle,
@@ -162,3 +175,9 @@ fun MarqueeTrackTextBounce(
         )
     }
 }
+
+/**
+ * Толщина обводки в точках холста. Контур рисуется по середине линии букв, то есть половина его
+ * уходит внутрь; заливка сверху это закрывает.
+ */
+private const val OUTLINE_WIDTH = 3f
