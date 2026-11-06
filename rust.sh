@@ -10,7 +10,7 @@ cd "$(dirname "$0")/composeApp/src/main/rust"
 
 
 "${CARGO:-cargo}" run --release --features=uniffi/cli --bin uniffi-bindgen generate \
-  --library target/release/libvociferate_core.so \
+  --library target/release/libplayer_core.so \
   --language kotlin \
   --out-dir ../../commonMain/kotlin/
 

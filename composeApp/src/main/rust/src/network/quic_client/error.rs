@@ -14,6 +14,9 @@ pub enum NetworkError {
     /// Подключиться не вышло: сокет не открылся, сервер не ответил, рукопожатие не
     /// состоялось. Другой адрес или повтор позже могут получиться.
     Connect { reason: String },
+    /// Запрос по уже открытому соединению не выполнен: поток не открылся, данные не ушли,
+    /// ответ не дочитан. Пустой успешный ответ сюда не относится.
+    Request { reason: String },
 }
 
 impl Display for NetworkError {
@@ -21,6 +24,7 @@ impl Display for NetworkError {
         match self {
             NetworkError::Address { reason } => write!(out, "{reason}"),
             NetworkError::Connect { reason } => write!(out, "сервер: {reason}"),
+            NetworkError::Request { reason } => write!(out, "запрос: {reason}"),
         }
     }
 }

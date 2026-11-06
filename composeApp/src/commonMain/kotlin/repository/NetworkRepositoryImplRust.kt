@@ -11,12 +11,17 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import repository.interfaces.NetworkRepository
 import repository.interfaces.SettingsRepository
 import sealed.Keywords
 import uniffi.player_core.Command
+import uniffi.player_core.NetworkException
 import uniffi.player_core.QuicSession
 import uniffi.player_core.SseCallback
+import uniffi.player_core.SseCancelToken
 
 class NetworkRepositoryImplRust(
     private val settings: SettingsRepository,
@@ -33,37 +38,45 @@ class NetworkRepositoryImplRust(
     private val _serverConfig = MutableStateFlow(ServerConfigDTO())
     override val serverConfig: StateFlow<ServerConfigDTO> = _serverConfig
 
+    private val sessionLock = Mutex()
     private var session: QuicSession? = null
     private var connectedAddress: String = ""
 
     private suspend fun getOrCreateSession(): QuicSession? {
         val currentAddress = settings.serverAddress.first { it.isNotBlank() }
-        if (session == null || connectedAddress != currentAddress) {
-            try {
-                session = null
-                val newSession = QuicSession.connect(currentAddress)
+        sessionLock.withLock {
+            val existing = session
+            if (existing != null && connectedAddress == currentAddress) {
+                return existing
+            }
+            session = null
+            connectedAddress = ""
+            return try {
+                val newSession = runInterruptible(Dispatchers.IO) {
+                    QuicSession.connect(currentAddress)
+                }
                 session = newSession
                 connectedAddress = currentAddress
                 _isServerAvailable.value = true
                 _fetchError.value = ""
+                newSession
             } catch (e: Exception) {
                 e.printStackTrace()
                 _fetchError.value = e.message ?: "Failed to connect to QUIC server"
                 _isServerAvailable.value = false
-                session = null
-                connectedAddress = ""
-                return null
+                null
             }
         }
-        return session
     }
 
     override suspend fun fetchPlaylist(): List<TrackInfo> {
         val currentSession = getOrCreateSession() ?: return emptyList()
         return try {
-            val responseBytes = currentSession.sendCommand(Command.GET_PLAYLIST, byteArrayOf())
+            val responseBytes = runInterruptible(Dispatchers.IO) {
+                currentSession.sendCommandResult(Command.GET_PLAYLIST, byteArrayOf())
+            }
             val text = responseBytes.decodeToString()
-            
+
             val list = mutableListOf<TrackInfo>()
             text.lines()
                 .filter { it.isNotBlank() && !it.startsWith("#") }
@@ -83,12 +96,23 @@ class NetworkRepositoryImplRust(
             _fetchError.value = ""
             _isServerAvailable.value = true
             list
+        } catch (e: NetworkException) {
+            e.printStackTrace()
+            _fetchError.value = e.message ?: "Failed to fetch playlist over QUIC"
+            _isServerAvailable.value = false
+            sessionLock.withLock {
+                session = null
+                connectedAddress = ""
+            }
+            emptyList()
         } catch (e: Exception) {
             e.printStackTrace()
             _fetchError.value = e.message ?: "Failed to fetch playlist over QUIC"
             _isServerAvailable.value = false
-            session = null
-            connectedAddress = ""
+            sessionLock.withLock {
+                session = null
+                connectedAddress = ""
+            }
             emptyList()
         }
     }
@@ -98,30 +122,41 @@ class NetworkRepositoryImplRust(
     }
 
     override fun observeServerUpdates(): Flow<String> = callbackFlow {
+
+        var token: SseCancelToken? = null
         val job = launch(Dispatchers.IO) {
             var subJob: kotlinx.coroutines.Job? = null
             settings.serverAddress.collect { address ->
                 if (address.isBlank()) return@collect
+                token?.cancel()
                 subJob?.cancel()
-                session = null
-                connectedAddress = ""
+                sessionLock.withLock {
+                    session = null
+                    connectedAddress = ""
+                }
                 val currentSession = getOrCreateSession()
                 if (currentSession != null) {
                     _isServerAvailable.value = true
                     trySend(Keywords.Refresh.value)
+                    val nextToken = SseCancelToken()
+                    token = nextToken
                     subJob = launch(Dispatchers.IO) {
                         try {
-                            currentSession.subscribeSse(object : SseCallback {
+                            currentSession.subscribeSseWithCancel(object : SseCallback {
                                 override fun onEvent(message: String) {
                                     _isServerAvailable.value = true
                                     trySend(Keywords.Refresh.value)
                                 }
-                            })
+                            }, nextToken)
                         } catch (e: Exception) {
-                            e.printStackTrace()
-                            _isServerAvailable.value = false
-                            session = null
-                            connectedAddress = ""
+                            if (!nextToken.isCancelled()) {
+                                e.printStackTrace()
+                                _isServerAvailable.value = false
+                                sessionLock.withLock {
+                                    session = null
+                                    connectedAddress = ""
+                                }
+                            }
                         }
                     }
                 } else {
@@ -130,6 +165,7 @@ class NetworkRepositoryImplRust(
             }
         }
         awaitClose {
+            token?.cancel()
             job.cancel()
             _isServerAvailable.value = false
         }

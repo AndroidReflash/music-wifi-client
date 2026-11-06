@@ -178,6 +178,7 @@ class AudioPlayerImpl : AudioPlayer {
             throw when (failure) {
                 is NetworkException.Address -> PlaybackFailure.BadArgument(failure.reason)
                 is NetworkException.Connect -> PlaybackFailure.Server(failure.reason)
+                is NetworkException.Request -> PlaybackFailure.Gone(failure.reason)
             }
         }
 

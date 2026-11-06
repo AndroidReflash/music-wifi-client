@@ -1,14 +1,17 @@
 use anyhow::{Context, Result};
-
-use super::verifier::DummyCertVerifier;
+use log::info;
 use quinn::{ClientConfig, Connection, Endpoint, RecvStream};
 use std::net::{Ipv6Addr, SocketAddr};
-use std::sync::Arc;
-use std::sync::Once;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Once};
 use std::time::Duration;
 use tokio::runtime::Runtime;
+use tokio::sync::watch;
 
 use super::error::NetworkError;
+use super::verifier::DummyCertVerifier;
+
+static ACTIVE_SSE_SUBSCRIPTIONS: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(uniffi::Object)]
 pub struct QuicSession {
@@ -17,11 +20,60 @@ pub struct QuicSession {
     rt: Runtime,
 }
 
-#[derive(uniffi::Enum)]
+#[derive(uniffi::Object)]
+pub struct SseCancelToken {
+    cancelled: AtomicBool,
+    tx: watch::Sender<bool>,
+}
+
+#[uniffi::export]
+impl SseCancelToken {
+    #[uniffi::constructor]
+    pub fn new() -> Arc<Self> {
+        let (tx, _rx) = watch::channel(false);
+        Arc::new(Self {
+            cancelled: AtomicBool::new(false),
+            tx,
+        })
+    }
+
+    pub fn cancel(&self) {
+        let was = self.cancelled.swap(true, Ordering::SeqCst);
+        let _ = self.tx.send(true);
+        if !was {
+            info!(
+                "sse: cancel requested, active={}",
+                ACTIVE_SSE_SUBSCRIPTIONS.load(Ordering::SeqCst)
+            );
+        }
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+}
+
+impl SseCancelToken {
+    fn subscribe(&self) -> watch::Receiver<bool> {
+        self.tx.subscribe()
+    }
+}
+
+#[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
     GetMusic,
     GetPlaylist,
     SubscribeSse,
+}
+
+impl Command {
+    fn id(self) -> u8 {
+        match self {
+            Command::GetMusic => 1,
+            Command::GetPlaylist => 2,
+            Command::SubscribeSse => 3,
+        }
+    }
 }
 
 #[uniffi::export(callback_interface)]
@@ -101,66 +153,35 @@ impl QuicSession {
     }
 
     pub fn send_command(&self, command: Command, data: Vec<u8>) -> Vec<u8> {
-        let command_id = match command {
-            Command::GetMusic => 1,
-            Command::GetPlaylist => 2,
-            Command::SubscribeSse => 3,
-        };
-
-        self.rt.block_on(async {
-            match self.connection.open_bi().await {
-                Ok((mut send, mut recv)) => {
-                    let mut packet = vec![command_id];
-                    packet.extend(data);
-                    
-                    let _ = send.write_all(&packet).await;
-                    let _ = send.finish();
-
-                    let mut response = Vec::new();
-                    let mut buf = vec![0; 4096];
-                    loop {
-                        match recv.read(&mut buf).await {
-                            Ok(Some(n)) if n > 0 => {
-                                response.extend_from_slice(&buf[..n]);
-                            }
-                            _ => break,
-                        }
-                    }
-                    return response;
-                }
-                Err(_) => {}
+        match self.send_command_result(command, data) {
+            Ok(response) => response,
+            Err(err) => {
+                info!("network: send_command failed: {err}");
+                Vec::new()
             }
-            Vec::new()
-        })
+        }
+    }
+
+    pub fn send_command_result(
+        &self,
+        command: Command,
+        data: Vec<u8>,
+    ) -> Result<Vec<u8>, NetworkError> {
+        self.rt.block_on(self.request(command, data))
     }
 
     pub fn subscribe_sse(&self, callback: Box<dyn SseCallback>) {
-        self.rt.block_on(async {
-            loop {
-                match self.connection.open_bi().await {
-                    Ok((mut send, mut recv)) => {
-                        if send.write_all(&[3]).await.is_ok() {
-                            let _ = send.finish();
-                            let mut buf = vec![0; 1024];
-                            let mut active = true;
-                            while active {
-                                match recv.read(&mut buf).await {
-                                    Ok(Some(n)) if n > 0 => {
-                                        let msg = String::from_utf8_lossy(&buf[..n]).into_owned();
-                                        callback.on_event(msg);
-                                    }
-                                    _ => {
-                                        active = false;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Err(_) => {}
-                }
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            }
-        });
+        let token = SseCancelToken::new();
+        self.subscribe_sse_with_cancel(callback, token);
+    }
+
+    pub fn subscribe_sse_with_cancel(
+        &self,
+        callback: Box<dyn SseCallback>,
+        token: Arc<SseCancelToken>,
+    ) {
+        self.rt
+            .block_on(self.run_sse(callback, token.subscribe()));
     }
 }
 
@@ -196,4 +217,109 @@ impl QuicSession {
         Ok((u64::from_be_bytes(size_buf), recv))
     }
 
+    async fn request(&self, command: Command, data: Vec<u8>) -> Result<Vec<u8>, NetworkError> {
+        let (mut send, mut recv) = self
+            .connection
+            .open_bi()
+            .await
+            .map_err(|err| NetworkError::Request {
+                reason: format!("поток не открылся: {err}"),
+            })?;
+
+        let mut packet = vec![command.id()];
+        packet.extend(data);
+        send.write_all(&packet)
+            .await
+            .map_err(|err| NetworkError::Request {
+                reason: format!("запрос не ушёл: {err}"),
+            })?;
+        send.finish().map_err(|err| NetworkError::Request {
+            reason: format!("запрос не закрылся: {err}"),
+        })?;
+
+        let mut response = Vec::new();
+        let mut buf = vec![0; 4096];
+        loop {
+            match recv.read(&mut buf).await {
+                Ok(Some(n)) if n > 0 => response.extend_from_slice(&buf[..n]),
+                Ok(Some(_)) | Ok(None) => return Ok(response),
+                Err(err) => {
+                    return Err(NetworkError::Request {
+                        reason: format!("ответ не дочитан: {err}"),
+                    })
+                }
+            }
+        }
+    }
+
+    async fn run_sse(&self, callback: Box<dyn SseCallback>, mut cancel: watch::Receiver<bool>) {
+        let active = ACTIVE_SSE_SUBSCRIPTIONS.fetch_add(1, Ordering::SeqCst) + 1;
+        info!("sse: subscribe start, active={active}");
+
+        loop {
+            if *cancel.borrow() {
+                break;
+            }
+
+            match self.connection.open_bi().await {
+                Ok((mut send, mut recv)) => {
+                    if send.write_all(&[Command::SubscribeSse.id()]).await.is_ok() {
+                        let _ = send.finish();
+                        let mut buf = vec![0; 1024];
+                        loop {
+                            if *cancel.borrow() {
+                                let remaining =
+                                    ACTIVE_SSE_SUBSCRIPTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
+                                info!("sse: subscribe stop, active={remaining}");
+                                return;
+                            }
+                            tokio::select! {
+                                biased;
+                                changed = cancel.changed() => {
+                                    if changed.is_ok() || *cancel.borrow() {
+                                        let remaining = ACTIVE_SSE_SUBSCRIPTIONS
+                                            .fetch_sub(1, Ordering::SeqCst)
+                                            - 1;
+                                        info!("sse: subscribe stop, active={remaining}");
+                                        return;
+                                    }
+                                }
+                                result = recv.read(&mut buf) => {
+                                    match result {
+                                        Ok(Some(n)) if n > 0 => {
+                                            let msg = String::from_utf8_lossy(&buf[..n]).into_owned();
+                                            callback.on_event(msg);
+                                        }
+                                        _ => break,
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(_) => {}
+            }
+
+            if cancelled_sleep(&mut cancel, Duration::from_secs(5)).await {
+                break;
+            }
+        }
+
+        let remaining = ACTIVE_SSE_SUBSCRIPTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
+        info!("sse: subscribe stop, active={remaining}");
+    }
+}
+
+async fn cancelled_sleep(cancel: &mut watch::Receiver<bool>, duration: Duration) -> bool {
+    if *cancel.borrow() {
+        return true;
+    }
+    tokio::select! {
+        biased;
+        changed = cancel.changed() => {
+            let _ = changed;
+            true
+        }
+        _ = tokio::time::sleep(duration) => *cancel.borrow(),
+    }
 }

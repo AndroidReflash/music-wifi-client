@@ -4,7 +4,7 @@ mod offline;
 
 uniffi::setup_scaffolding!();
 
-pub use network::{Command, NetworkError, QuicSession, SseCallback};
+pub use network::{Command, NetworkError, QuicSession, SseCallback, SseCancelToken};
 pub use offline::{FolderWatcher, FolderWatcherCallback};
 pub use player::{
     cover_of, output_devices, track_cover, AudioOutput, BandsListener, FrameConverter, PcmSpec,

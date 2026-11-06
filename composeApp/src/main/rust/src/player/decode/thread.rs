@@ -191,8 +191,7 @@ impl Decode {
         }
 
         let spec = self.output.spec();
-        let frames = (starved - self.starved_said) / u64::from(spec.channels);
-        let silence = 1000.0 * frames as f64 / f64::from(spec.sample_rate);
+        let _frames = (starved - self.starved_said) / u64::from(spec.channels);
 
         self.starved_said = starved;
         self.starved_at = now;
@@ -439,7 +438,6 @@ impl Decode {
     /// наушники не должны означать музыку из динамика на весь автобус. Играть дальше —
     /// обычным продолжением, то есть нажатием.
     fn switch_output(&mut self) {
-        let lost = self.output.device_name().to_string();
 
         // Позиция считается до переоткрытия и по прежнему устройству: прозвучало ровно
         // то, что оно успело забрать, а лежавшее в кольце пропадёт вместе с кольцом.

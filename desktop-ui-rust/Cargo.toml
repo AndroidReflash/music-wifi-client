@@ -8,5 +8,10 @@ name = "musicwifi-rust"
 path = "src/main.rs"
 
 [dependencies]
-iced = { version = "0.13.1", features = ["advanced", "canvas", "image", "svg"] }
+iced = { version = "0.13.1", features = ["advanced", "canvas", "image", "svg", "tokio"] }
 player_core = { path = "../composeApp/src/main/rust" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+x11rb = { version = "0.13", features = ["allow-unsafe-code", "xkb"] }
+log = "0.4"
+env_logger = "0.11"
