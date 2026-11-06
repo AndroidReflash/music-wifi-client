@@ -3,7 +3,7 @@ pub fn compute_bands(fft_array: Vec<f64>) -> Vec<f64> {
         return Vec::new();
     }
 
-    const PART_NUMBER: usize = 32;
+    const PART_NUMBER: usize = 1024;
     const FREQUENCY_EXPONENT: f64 = 1.5;
     const RELEVANT_DATA_FACTOR: f64 = 0.5;
 

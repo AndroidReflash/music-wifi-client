@@ -7,7 +7,7 @@ use rustfft::{Fft, FftPlanner};
 /// подряд, вперемешку по каналам, — так же, как их брали из буфера ExoPlayer до
 /// переезда на Rust. Каналы не усредняются намеренно: усреднение гасит то, что в них в
 /// противофазе, и картина выходит другой.
-pub const FFT_SIZE: usize = 1024;
+pub const FFT_SIZE: usize = 2048;
 
 /// План преобразования: таблицы поворотных множителей для [`FFT_SIZE`] точек. Считать их
 /// заново на каждый вызов дороже самого преобразования, а размер окна всегда один.
@@ -24,11 +24,15 @@ pub fn analyze_samples(samples: &[f64]) -> Vec<f64> {
     }
 
     let mut buffer: Vec<Complex<f64>> = Vec::with_capacity(FFT_SIZE);
+    let len = samples.len().min(FFT_SIZE);
 
-    for &sample in samples.iter().take(FFT_SIZE) {
-        buffer.push(Complex::new(sample, 0.0));
+    // Оконная функция Ханна (Hann window) для устранения спектральных утечек
+    for (i, &sample) in samples.iter().take(len).enumerate() {
+        let window = 0.5 * (1.0 - (2.0 * std::f64::consts::PI * i as f64 / (FFT_SIZE as f64 - 1.0)).cos());
+        buffer.push(Complex::new(sample * window, 0.0));
     }
 
+    // Добиваем нулями до FFT_SIZE
     while buffer.len() < FFT_SIZE {
         buffer.push(Complex::new(0.0, 0.0));
     }

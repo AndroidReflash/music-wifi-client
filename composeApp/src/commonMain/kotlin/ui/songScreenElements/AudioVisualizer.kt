@@ -4,6 +4,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -102,51 +104,80 @@ fun AudioVisualizerHeight(
 ) {
     val count = (equalizer.size * KEEP_PERCENT).toInt().coerceAtLeast(1)
     val amplitudes = equalizer.dropLast(count)
+
+    // Сохраняем предыдущие значения для плавного спада (decay / lerp)
+    var previousAmplitudes = remember { mutableStateOf(listOf<Float>()) }
+
     Canvas(modifier = modifier.size(width = 500.dp, height = 400.dp)) {
         val canvasWidth = size.width
         val canvasHeight = size.height
 
-        val totalBands = TOTAL_ELEMENTS / 2
+        val totalBands = TOTAL_ELEMENTS
         val halfBands = totalBands / 2
 
         val gap = 1.5.dp.toPx()
         val totalGapsWidth = gap * (totalBands - 1)
         val bandWidth = ((canvasWidth - totalGapsWidth) / totalBands).coerceAtLeast(1f)
 
-        if (amplitudes.isNotEmpty()) {
-            val halfAmplitudes = List(halfBands) { index ->
-                if (amplitudes.size == 1) {
-                    amplitudes[0]
-                } else {
-                    val exactIndex = (index.toFloat() / (halfBands - 1)) * amplitudes.lastIndex
-                    val lowerIndex = exactIndex.toInt().coerceIn(0, amplitudes.lastIndex)
-                    val upperIndex = (lowerIndex + 1).coerceIn(0, amplitudes.lastIndex)
-                    val fraction = exactIndex - lowerIndex
+        if (amplitudes.isEmpty()) {
+            return@Canvas
+        }
 
-                    val val1 = amplitudes[lowerIndex]
-                    val val2 = amplitudes[upperIndex]
-                    val1 + (val2 - val1) * fraction
+        // 1. Логарифмическое распределение для половины колонок
+        val targetHalfAmplitudes = List(halfBands) { index ->
+            if (amplitudes.size == 1) {
+                amplitudes[0].toFloat()
+            } else {
+                val normalizedIndex = index.toFloat() / (halfBands.coerceAtLeast(2) - 1)
+
+                // Степень < 1.0 (например, 0.45) дает мягкое логарифмическое растяжение
+                val curvedIndex = normalizedIndex.pow(0.45f)
+
+                val exactIndex = curvedIndex * amplitudes.lastIndex
+                val lowerIndex = exactIndex.toInt().coerceIn(0, amplitudes.lastIndex)
+                val upperIndex = (lowerIndex + 1).coerceIn(0, amplitudes.lastIndex)
+                val fraction = exactIndex - lowerIndex
+
+                val val1 = amplitudes[lowerIndex]
+                val val2 = amplitudes[upperIndex]
+                (val1 + (val2 - val1) * fraction).toFloat()
+            }
+        }
+
+        // Зеркалируем для симметричного эквалайзера (из центра в стороны)
+        val targetAmplitudes = targetHalfAmplitudes.reversed() + targetHalfAmplitudes
+
+        // 2. Сглаживание (Lerp + Decay) между кадрами
+        val smoothedAmplitudes = if (previousAmplitudes.value.size != targetAmplitudes.size) {
+            targetAmplitudes
+        } else {
+            targetAmplitudes.zip(previousAmplitudes.value) { target, prev ->
+                if (target > prev) {
+                    prev + (target - prev) * 0.7f // Быстрый взлет на ударе
+                } else {
+                    prev + (target - prev) * 0.18f // Плавное гравитационное падение
                 }
             }
+        }
+        previousAmplitudes.value = smoothedAmplitudes
 
-            val mirroredAmplitudes = halfAmplitudes.reversed() + halfAmplitudes
+        smoothedAmplitudes.forEachIndexed { index, amplitude ->
+            val freqWeight = START_WEIGHT
 
-            mirroredAmplitudes.forEachIndexed { index, amplitude ->
-                val finalAmplitude = (amplitude.pow(0.5) * SCALE_FACTOR).toFloat()
+            val finalAmplitude = (amplitude.coerceAtLeast(0.0f).pow(WEIGHT_COEFFICIENT) * SCALE_FACTOR) * freqWeight
 
-                val minHeight = 1.dp.toPx()
-                val animatedHeight = (finalAmplitude * canvasHeight).coerceIn(minHeight, canvasHeight)
+            val minHeight = 1.dp.toPx()
+            val animatedHeight = (finalAmplitude * canvasHeight).coerceIn(minHeight, canvasHeight)
 
-                val xOffset = index * (bandWidth + gap)
-                val yOffset = (canvasHeight - animatedHeight) / 2
+            val xOffset = index * (bandWidth + gap)
+            val yOffset = (canvasHeight - animatedHeight) / 2
 
-                drawRoundRect(
-                    color = baseColor,
-                    topLeft = Offset(xOffset, yOffset),
-                    size = Size(bandWidth, animatedHeight),
-                    cornerRadius = CornerRadius(bandWidth / 2, bandWidth / 2)
-                )
-            }
+            drawRoundRect(
+                color = baseColor,
+                topLeft = Offset(xOffset, yOffset),
+                size = Size(bandWidth, animatedHeight),
+                cornerRadius = CornerRadius(bandWidth / 2, bandWidth / 2)
+            )
         }
     }
 }
@@ -174,8 +205,12 @@ fun AudioVisualizerRadial(
     modifier: Modifier = Modifier,
     baseColor: Color
 ) {
+    // Отсекаем верхний мертвый хвост спектра (выше ~8-10 кГц, где почти ничего нет)
     val count = (equalizer.size * KEEP_PERCENT).toInt().coerceAtLeast(1)
     val amplitudes = equalizer.dropLast(count)
+
+    var previousAmplitudes = remember { mutableStateOf(listOf<Float>()) }
+
     Canvas(modifier = modifier) {
         if (amplitudes.isEmpty()) {
             return@Canvas
@@ -183,43 +218,58 @@ fun AudioVisualizerRadial(
 
         val side = min(size.width, size.height)
         val center = Offset(size.width / 2, size.height / 2)
+        val totalBands = TOTAL_ELEMENTS
 
-        val totalBands = TOTAL_ELEMENTS // Теперь может быть любым (например, 120, 180 и т.д.)
-        val halfBands = totalBands / 2
-
-        // Плавная выборка (интерполяция) из входного массива любой длины
-        val halfAmplitudes = List(halfBands) { index ->
+        // Логарифмическое распределение: сгущаем выборку в НАЧАЛЕ массива (где басы)
+        val targetAmplitudes = List(totalBands) { index ->
             if (amplitudes.size == 1) {
-                amplitudes[0]
+                amplitudes[0].toFloat()
             } else {
-                val exactIndex = (index.toFloat() / (halfBands - 1)) * amplitudes.lastIndex
+                val normalizedIndex = index.toFloat() / (totalBands - 1)
+
+                // Степень < 1.0 растягивает начало массива (басы) для детального отображения
+                val curvedIndex = normalizedIndex.pow(0.45f)
+
+                val exactIndex = curvedIndex * amplitudes.lastIndex
                 val lowerIndex = exactIndex.toInt().coerceIn(0, amplitudes.lastIndex)
                 val upperIndex = (lowerIndex + 1).coerceIn(0, amplitudes.lastIndex)
                 val fraction = exactIndex - lowerIndex
 
-                // Линейная интерполяция между соседними басами для плавности
                 val val1 = amplitudes[lowerIndex]
                 val val2 = amplitudes[upperIndex]
-                val1 + (val2 - val1) * fraction
+                (val1 + (val2 - val1) * fraction).toFloat()
             }
         }
 
-        val ringAmplitudes = halfAmplitudes + halfAmplitudes
+        // Плавный сглаживающий спад (Lerp + Decay)
+        val smoothedAmplitudes = if (previousAmplitudes.value.size != targetAmplitudes.size) {
+            targetAmplitudes
+        } else {
+            targetAmplitudes.zip(previousAmplitudes.value) { target, prev ->
+                if (target > prev) {
+                    prev + (target - prev) * 0.7f
+                } else {
+                    prev + (target - prev) * 0.18f
+                }
+            }
+        }
+        previousAmplitudes.value = smoothedAmplitudes
 
         val innerRadius = side * INNER_SHARE
         val outerRadius = side * OUTER_SHARE
         val minLength = 1.dp.toPx()
+        val maxAvailableLength = outerRadius - innerRadius
 
         val spacing = (2f * PI.toFloat() * innerRadius) / totalBands
-        // Ограничиваем минимальную толщину 1 пикселем, чтобы лучи не пропадали
         val thickness = (spacing * BAND_SHARE).coerceAtLeast(1.dp.toPx())
-
         val degreesPerBand = 360f / totalBands
 
-        ringAmplitudes.forEachIndexed { index, amplitude ->
-            val loudness = (amplitude.pow(0.5) * SCALE_FACTOR).toFloat()
-            val length = (loudness * (outerRadius - innerRadius))
-                .coerceIn(minLength, outerRadius - innerRadius)
+        smoothedAmplitudes.forEachIndexed { index, amplitude ->
+            val normalizedIndex = index.toFloat() / (totalBands - 1)
+            val freqWeight = START_WEIGHT + (END_WEIGHT - START_WEIGHT) * normalizedIndex.pow(1.5f)
+
+            val loudness = (amplitude.coerceAtLeast(0.0f).pow(WEIGHT_COEFFICIENT) * SCALE_FACTOR) * freqWeight
+            val length = (loudness * maxAvailableLength).coerceIn(minLength, maxAvailableLength)
 
             val radians = ((index + 0.5f) * degreesPerBand - 90f) * PI.toFloat() / 180f
             val direction = Offset(cos(radians), sin(radians))
@@ -239,7 +289,10 @@ private const val INNER_SHARE = 0.24f
 
 private const val OUTER_SHARE = 0.5f
 
-private const val BAND_SHARE = 0.6f
+private const val BAND_SHARE = 0.5f
 private const val TOTAL_ELEMENTS = 180
-private const val KEEP_PERCENT = 0.6f
-private const val SCALE_FACTOR = 0.4f
+private const val KEEP_PERCENT = 0.3f
+private const val SCALE_FACTOR = 1f
+private const val WEIGHT_COEFFICIENT = 0.4f
+private const val START_WEIGHT = 1f
+private const val END_WEIGHT = 1.3f
