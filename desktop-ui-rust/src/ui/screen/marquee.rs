@@ -1,8 +1,8 @@
 use iced::alignment;
 use iced::mouse;
-use iced::widget::canvas::{self, Canvas, Geometry, Text};
+use iced::widget::canvas::{self, Canvas, Geometry, Path, Stroke, Text};
 use iced::widget::{container, mouse_area};
-use iced::{Color, Element, Length, Point, Rectangle, Renderer, Theme};
+use iced::{Color, Element, Length, Point, Rectangle, Renderer, Size, Theme};
 
 use crate::app::{App, Message};
 
@@ -44,7 +44,7 @@ impl canvas::Program<Message> for Marquee {
             return vec![frame.into_geometry()];
         }
         let size = 18.0;
-        let approx_width = self.title.chars().count() as f32 * size * 0.58;
+        let approx_width = self.title.chars().count() as f32 * size * 0.5;
         let view_w = bounds.width;
         let speed = 25.0;
         let pause = 2.0;
@@ -55,6 +55,7 @@ impl canvas::Program<Message> for Marquee {
             (view_w / 2.0, alignment::Horizontal::Center)
         } else {
             let max_scroll = (approx_width - view_w).max(0.0);
+            let half = max_scroll / 2.0;
             let dur = (max_scroll / speed).max(0.001);
             let period = pause + dur + pause + dur;
             let t = self.scroll.rem_euclid(period);
@@ -71,7 +72,7 @@ impl canvas::Program<Message> for Marquee {
                 let e = 1.0 - (1.0 - p) * (1.0 - p);
                 -max_scroll + e * max_scroll
             };
-            (offset, alignment::Horizontal::Left)
+            (view_w / 2.0 + half + offset, alignment::Horizontal::Center)
         };
 
         let base = Point::new(x, y);

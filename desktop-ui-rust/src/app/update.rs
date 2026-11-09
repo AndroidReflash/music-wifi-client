@@ -353,11 +353,13 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             }
         }
 
-        Message::CoverLoaded { index, bytes } => {
+        Message::CoverLoaded { index, rgba } => {
             if app.cover_loading == Some(index) {
                 app.cover_loading = None;
                 app.cover_for_index = Some(index);
-                app.cover = bytes.map(iced::widget::image::Handle::from_bytes);
+                app.cover = rgba.map(|(w, h, pixels)| {
+                    iced::widget::image::Handle::from_rgba(w, h, pixels)
+                });
             }
         }
 
@@ -834,13 +836,15 @@ fn eq_gains(app: &App) -> Vec<f32> {
 
 fn refresh_output_devices() -> Task<Message> {
     Task::perform(
-        async { list_output_devices() },
+        async {
+            tokio::task::spawn_blocking(|| {
+                player_core::output_devices().map_err(|e| e.to_string())
+            })
+            .await
+            .unwrap_or_else(|e| Err(e.to_string()))
+        },
         Message::OutputDevicesLoaded,
     )
-}
-
-fn list_output_devices() -> Result<Vec<String>, String> {
-    player_core::output_devices().map_err(|e| e.to_string())
 }
 
 async fn set_output_device_task(
@@ -933,10 +937,17 @@ fn maybe_load_cover(app: &mut App) -> Task<Message> {
     app.cover_loading = Some(index);
     Task::perform(
         async move {
-            std::thread::spawn(move || player_core::track_cover(uri).unwrap_or(None))
-                .join()
+            tokio::task::spawn_blocking(move || decode_cover(uri))
+                .await
                 .unwrap_or(None)
         },
-        move |bytes| Message::CoverLoaded { index, bytes },
+        move |rgba| Message::CoverLoaded { index, rgba },
     )
+}
+
+fn decode_cover(uri: String) -> Option<(u32, u32, Vec<u8>)> {
+    let bytes = player_core::track_cover(uri).ok().flatten()?;
+    let image = image::load_from_memory(&bytes).ok()?.into_rgba8();
+    let (w, h) = image.dimensions();
+    Some((w, h, image.into_raw()))
 }

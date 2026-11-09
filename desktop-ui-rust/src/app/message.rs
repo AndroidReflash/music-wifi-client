@@ -55,7 +55,10 @@ pub enum Message {
     CoverSmallToggled(bool),
     AutoplayToggled(bool),
 
-    CoverLoaded { index: usize, bytes: Option<Vec<u8>> },
+    CoverLoaded {
+        index: usize,
+        rgba: Option<(u32, u32, Vec<u8>)>,
+    },
 
     SoundRefreshRequested,
     OutputDevicesLoaded(Result<Vec<String>, String>),
@@ -134,10 +137,10 @@ impl fmt::Debug for Message {
             Self::VisualizerRingToggled(v) => formatter.debug_tuple("VisualizerRingToggled").field(v).finish(),
             Self::CoverSmallToggled(v) => formatter.debug_tuple("CoverSmallToggled").field(v).finish(),
             Self::AutoplayToggled(v) => formatter.debug_tuple("AutoplayToggled").field(v).finish(),
-            Self::CoverLoaded { index, bytes } => formatter
+            Self::CoverLoaded { index, rgba } => formatter
                 .debug_struct("CoverLoaded")
                 .field("index", index)
-                .field("has_bytes", &bytes.as_ref().map(|b| b.len()))
+                .field("has_pixels", &rgba.is_some())
                 .finish(),
             Self::SoundRefreshRequested => formatter.write_str("SoundRefreshRequested"),
             Self::OutputDevicesLoaded(v) => formatter.debug_tuple("OutputDevicesLoaded").field(&v.as_ref().map(|d| d.len()).map_err(|e| e.clone())).finish(),
@@ -176,7 +179,6 @@ impl From<PlayerNotice> for Message {
             PlayerNotice::Ready(player) => Self::PlayerReady(player),
             PlayerNotice::Failed(error) => Self::PlayerFailed(error),
             PlayerNotice::Event(event) => Self::PlayerEvent(event),
-            PlayerNotice::Bands(bands) => Self::Bands(bands),
             PlayerNotice::Playlist(tracks) => Self::Playlist(tracks),
             PlayerNotice::PlaylistFailed(reason) => Self::PlaylistFailed(reason),
         }

@@ -16,7 +16,6 @@ pub enum PlayerNotice {
     Ready(Arc<Player>),
     Failed(PlayerError),
     Event(PlayerEvent),
-    Bands(Vec<f64>),
     Playlist(Vec<TrackData>),
     PlaylistFailed(String),
 }
@@ -24,6 +23,8 @@ pub enum PlayerNotice {
 pub struct PlayerHandle {
     notices: Arc<Mutex<mpsc::UnboundedReceiver<PlayerNotice>>>,
     sender: mpsc::UnboundedSender<PlayerNotice>,
+    bands: Arc<Mutex<mpsc::UnboundedReceiver<Vec<f64>>>>,
+    _bands_sender: mpsc::UnboundedSender<Vec<f64>>,
     watcher: Arc<Mutex<Option<Arc<FolderWatcher>>>>,
     watcher_generation: Arc<AtomicU64>,
 }
@@ -31,10 +32,11 @@ pub struct PlayerHandle {
 impl PlayerHandle {
     pub fn start(folder_path: String) -> Self {
         let (sender, receiver) = mpsc::unbounded();
+        let (bands_sender, bands_receiver) = mpsc::unbounded();
         let watcher = Arc::new(Mutex::new(None));
         let watcher_generation = Arc::new(AtomicU64::new(0));
 
-        start_player(sender.clone());
+        start_player(sender.clone(), bands_sender.clone());
         start_watcher(
             folder_path,
             sender.clone(),
@@ -45,6 +47,8 @@ impl PlayerHandle {
         Self {
             notices: Arc::new(Mutex::new(receiver)),
             sender,
+            bands: Arc::new(Mutex::new(bands_receiver)),
+            _bands_sender: bands_sender,
             watcher,
             watcher_generation,
         }
@@ -52,6 +56,10 @@ impl PlayerHandle {
 
     pub fn notices(&self) -> ChannelStream<PlayerNotice> {
         ChannelStream::new(self.notices.clone())
+    }
+
+    pub fn bands(&self) -> LatestStream<Vec<f64>> {
+        LatestStream::new(self.bands.clone())
     }
 
     pub fn set_folder(&self, folder_path: String) {
@@ -107,6 +115,38 @@ impl<T> Stream for ChannelStream<T> {
     }
 }
 
+#[derive(Clone)]
+pub struct LatestStream<T> {
+    receiver: Arc<Mutex<mpsc::UnboundedReceiver<T>>>,
+}
+
+impl<T> LatestStream<T> {
+    pub fn new(receiver: Arc<Mutex<mpsc::UnboundedReceiver<T>>>) -> Self {
+        Self { receiver }
+    }
+}
+
+impl<T> Stream for LatestStream<T> {
+    type Item = T;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<T>> {
+        let this = self.get_mut();
+        let mut receiver = lock(&this.receiver);
+        match Pin::new(&mut *receiver).poll_next(cx) {
+            Poll::Ready(Some(mut last)) => {
+                loop {
+                    match Pin::new(&mut *receiver).poll_next(cx) {
+                        Poll::Ready(Some(value)) => last = value,
+                        Poll::Ready(None) => return Poll::Ready(Some(last)),
+                        Poll::Pending => return Poll::Ready(Some(last)),
+                    }
+                }
+            }
+            other => other,
+        }
+    }
+}
+
 struct PlayerListenerSink {
     sender: mpsc::UnboundedSender<PlayerNotice>,
 }
@@ -118,12 +158,14 @@ impl PlayerListener for PlayerListenerSink {
 }
 
 struct BandsListenerSink {
-    sender: mpsc::UnboundedSender<PlayerNotice>,
+    sender: mpsc::UnboundedSender<Vec<f64>>,
 }
 
 impl BandsListener for BandsListenerSink {
     fn on_bands(&self, bands: Vec<f64>) {
-        send(&self.sender, PlayerNotice::Bands(bands));
+        if self.sender.unbounded_send(bands).is_err() {
+            return;
+        }
     }
 }
 
@@ -137,7 +179,10 @@ impl FolderWatcherCallback for FolderWatcherSink {
     }
 }
 
-fn start_player(sender: mpsc::UnboundedSender<PlayerNotice>) {
+fn start_player(
+    sender: mpsc::UnboundedSender<PlayerNotice>,
+    bands_sender: mpsc::UnboundedSender<Vec<f64>>,
+) {
     let thread_sender = sender.clone();
 
     let spawned = thread::Builder::new()
@@ -148,7 +193,7 @@ fn start_player(sender: mpsc::UnboundedSender<PlayerNotice>) {
                     sender: thread_sender.clone(),
                 }),
                 Box::new(BandsListenerSink {
-                    sender: thread_sender.clone(),
+                    sender: bands_sender,
                 }),
                 None,
             );

@@ -2760,10 +2760,12 @@ version = "0.1.0"
 dependencies = [
  "env_logger",
  "iced",
+ "image",
  "log",
  "player_core",
  "serde",
  "serde_json",
+ "tokio",
  "x11rb",
 ]
 

@@ -7,9 +7,8 @@
 //! обязанности отношения не имеют и только мешали ей.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -20,6 +19,10 @@ use crate::player::fft_processor::analyze_samples;
 use crate::player::output::OutputControl;
 use crate::player::player_core::BandsListener;
 
+/// Сколько окон может ждать счёта. Для визуализатора допустимо терять кадры, копить их нельзя:
+/// при отставании потребителя лишнее выталкивается, а отправитель звука не ждёт.
+const QUEUE_CAP: usize = 32;
+
 /// Окно отсчётов, из которого считать полосы.
 struct Window {
     samples: Vec<f32>,
@@ -29,17 +32,86 @@ struct Window {
     generation: u64,
 }
 
+struct Inbox {
+    queue: Mutex<VecDeque<Window>>,
+    ready: Condvar,
+    closed: AtomicBool,
+}
+
+impl Inbox {
+    fn new() -> Self {
+        Inbox {
+            queue: Mutex::new(VecDeque::with_capacity(QUEUE_CAP)),
+            ready: Condvar::new(),
+            closed: AtomicBool::new(false),
+        }
+    }
+
+    fn lock(&self) -> MutexGuard<'_, VecDeque<Window>> {
+        self.queue
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn close(&self) {
+        self.closed.store(true, Ordering::Release);
+        self.ready.notify_all();
+    }
+
+    fn push(&self, window: Window) {
+        if self.closed.load(Ordering::Acquire) {
+            return;
+        }
+        let mut queue = self.lock();
+        while queue.len() >= QUEUE_CAP {
+            queue.pop_front();
+        }
+        queue.push_back(window);
+        drop(queue);
+        self.ready.notify_one();
+    }
+
+    /// Выбрасывает накопленное: при смене дорожки старые окна не должны висеть в памяти до
+    /// чтения потребителем.
+    fn clear(&self) {
+        self.lock().clear();
+        self.ready.notify_all();
+    }
+
+    /// Ждёт окно не дольше `wait`. `None` — очередь закрыта, поток пора завершать.
+    fn take(&self, wait: Duration) -> Option<Option<Window>> {
+        let mut queue = self.lock();
+        loop {
+            if let Some(window) = queue.pop_front() {
+                return Some(Some(window));
+            }
+            if self.closed.load(Ordering::Acquire) {
+                return None;
+            }
+            let (guard, result) = self
+                .ready
+                .wait_timeout(queue, wait)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            queue = guard;
+            if result.timed_out() {
+                return Some(queue.pop_front());
+            }
+        }
+    }
+}
+
 /// Ручка потока спектра у того, кто его кормит.
 pub struct SpectrumThread {
-    windows: Sender<Window>,
+    inbox: Arc<Inbox>,
     generation: Arc<AtomicU64>,
     worker: Option<JoinHandle<()>>,
 }
 
 impl SpectrumThread {
     pub fn start(bands: Box<dyn BandsListener>, control: OutputControl) -> Self {
-        let (windows, inbox) = channel();
+        let inbox = Arc::new(Inbox::new());
         let generation = Arc::new(AtomicU64::new(0));
+        let worker_inbox = inbox.clone();
         let worker_generation = generation.clone();
 
         // Поток спектра не обязателен для звука, поэтому его неудача не обрывает создание плеера.
@@ -47,7 +119,7 @@ impl SpectrumThread {
         // откуда-то узнать.
         let worker = match thread::Builder::new()
             .name("spectrum".to_string())
-            .spawn(move || Spectrum::new(bands, control, worker_generation).serve(inbox))
+            .spawn(move || Spectrum::new(bands, control, worker_generation).serve(worker_inbox))
         {
             Ok(worker) => Some(worker),
             Err(err) => {
@@ -57,38 +129,34 @@ impl SpectrumThread {
         };
 
         SpectrumThread {
-            windows,
+            inbox,
             generation,
             worker,
         }
     }
 
-    /// Отдаёт окно на счёт. Канал без предела, поэтому отправка не ждёт никогда и окно не
-    /// теряется: отстал поток спектра — окна дождутся его в канале.
+    /// Отдаёт окно на счёт. Отправка не ждёт звука: при заполнении старое окно вытесняется,
+    /// терять кадры визуализатора допустимо.
     pub fn feed(&self, samples: Vec<f32>, at: u64) {
         let window = Window {
             samples,
             at,
             generation: self.generation.load(Ordering::Relaxed),
         };
-        // Отказ бывает только тогда, когда потока спектра нет: он не запустился — об этом
-        // сказано при старте — или кончился. Окну тогда деваться некуда.
-        drop(self.windows.send(window));
+        self.inbox.push(window);
     }
 
     /// Выбрасывает всё посчитанное и всё, что в пути: дорожку бросили, перемотали или сменили
     /// устройство, и прежние полосы к новому звуку отношения не имеют.
-    ///
-    /// Сделано номером поколения, а не сообщением: сообщение пришлось бы слать по тому же каналу,
-    /// а он переполняется и теряет — и просьба очистить пропала бы вместе с окном.
     pub fn clear(&self) {
-        self.generation.fetch_add(1, Ordering::Relaxed);
+        self.generation.fetch_add(1, Ordering::Release);
+        self.inbox.clear();
     }
 }
 
 impl Drop for SpectrumThread {
     fn drop(&mut self) {
-        // Закрытие канала — это и есть приказ уйти: поток ждёт на нём и выходит по разрыву.
+        self.inbox.close();
         if let Some(worker) = self.worker.take() {
             drop(worker.join());
         }
@@ -121,32 +189,31 @@ impl Spectrum {
         }
     }
 
-    fn serve(mut self, inbox: Receiver<Window>) {
+    fn serve(mut self, inbox: Arc<Inbox>) {
         loop {
-            // Очередь пуста — ждать окно и только его. Есть очередь — ждать до срока ближайших
-            // полос, но не дольше: окно, придя раньше, разбудит само.
-            let waited = match self.ahead.front() {
-                None => inbox.recv().map_err(|_| RecvTimeoutError::Disconnected),
-                Some(_) => inbox.recv_timeout(self.until_next()),
+            // Очередь пуста — ждать окно. Есть готовые к выдаче полосы — ждать не дольше срока
+            // ближайших, но окно, придя раньше, разбудит само.
+            let wait = match self.ahead.front() {
+                None => Duration::from_millis(250),
+                Some(_) => self.until_next(),
             };
+            let waited = inbox.take(wait);
 
-            // Сброс сверяется после ожидания, а не до: он мог прийти, пока поток ждал, и тогда
-            // окно, которое его разбудило, уже от нового поколения.
-            let generation = self.generation.load(Ordering::Relaxed);
+            let generation = self.generation.load(Ordering::Acquire);
             if generation != self.working {
                 self.ahead.clear();
                 self.working = generation;
             }
 
             match waited {
-                Ok(window) => {
+                None => return,
+                Some(Some(window)) => {
                     // Окно от брошенной дорожки считать незачем.
                     if window.generation == self.working {
                         self.analyze(window);
                     }
                 }
-                Err(RecvTimeoutError::Timeout) => {}
-                Err(RecvTimeoutError::Disconnected) => return,
+                Some(None) => {}
             }
 
             self.release();
